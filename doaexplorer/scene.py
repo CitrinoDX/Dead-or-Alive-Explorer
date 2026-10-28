@@ -1,7 +1,8 @@
 """The common model description every game module produces and the viewer/exporters consume.
 
 meshes[i]  = dict(pos (N,3) f4, nrm (N,3) f4, uv (N,2) f4, idx (M,) u4 triangle list,
-                  subs=[dict(start, count, tex, transparent, cull, diffuse)])  or None
+                  subs=[dict(start, count, tex, transparent, cull, diffuse, env?)])  or None
+             env: tex is a reflection map, looked up from the view-space normal instead of the UVs
 parts[j]   = dict(name, group, mesh, m (4x4 column-vector matrix), visible)
 textures[k]= dict(w, h, fmt, name) + a decoder returning (h,w,4) uint8 RGBA
 basis      = orientation applied on top of every part (viewer and export alike)

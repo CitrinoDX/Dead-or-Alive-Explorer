@@ -241,11 +241,15 @@ def obj_geometry(ob, ntex):
         tex = mt.textures[0][mt.tex_field] if mt.textures else -1
         if not 0 <= tex < ntex:
             tex = -1
+        # bit 24 of a texture ref's last dword: the texture is a reflection map, sphere-mapped from the normals rather
+        # than laid out by the UVs (chrome/sheen images: aya18's helmet dome, Zack's metal; the second, kind-4 stage of
+        # two-stage materials). The compact format's refs are laid out differently.
+        env = mt.strips is None and bool(mt.textures) and bool(mt.textures[0][3] & 0x1000000)
         nrm = ob.normals.get(s)
         cull = material_cull(mt.nrm_mode, compact=mt.strips is not None)
         chunks.append(dict(pos=ob.positions[s][used], nrm=None if nrm is None else nrm[used], uv=ob.uvs[s][used],
                            tris=inv.reshape(-1, 3),
-                           sub=dict(tex=int(tex), transparent=mt.transparent, cull=cull,
+                           sub=dict(tex=int(tex), transparent=mt.transparent, cull=cull, env=env,
                                     diffuse=[float(v) for v in mt.diffuse])))
     g = merge_geometry(chunks)
     if g is not None:
