@@ -4,7 +4,8 @@ from ..afs import Afs
 from ..scene import Scene
 from .base import Game, sort_key_label, NEED_GX
 from . import xpr_mdl, gx_layout
-from .doax import place_with_cat
+from . import cat_skel
+from .doax import place_with_cat, cat_skeleton
 
 NAMES = {  # extras from the Team Ninja importer's skeleton notes; hik/sui/gok/sam/nin are DOA3-era models
     "kas": "Kasumi", "aya": "Ayane", "tin": "Tina", "lei": "Lei Fang", "hel": "Helena",
@@ -93,6 +94,7 @@ class DOA2U(Game):
             if path and "same mesh/texture count" in note:
                 gx_layout.place_parts(sc, gx_layout.parse_layout(path), len(x.objs))
                 sc.note = "DOA3 model: layout %s from GreedXplorer's DOA3 set (same mesh and texture count)" % os.path.basename(path)
+                self._skeleton(sc, e, 3)
             elif e["cat"] is not None:
                 place_with_cat(sc, x, self.afs[e["archive"]].read(e["cat"]), e["char"], self.sources.skeletons)
             if not sc.parts:
@@ -104,6 +106,8 @@ class DOA2U(Game):
             sc.note = note
             if path:
                 gx_layout.place_parts(sc, gx_layout.parse_layout(path), len(x.objs))
+                if sc.parts:
+                    self._skeleton(sc, e, 2)
             if not sc.parts:
                 sc.default_parts()
                 if not path:
@@ -114,3 +118,11 @@ class DOA2U(Game):
             if not x.objs:
                 sc.note = "texture bundle (no meshes)"
         return sc
+
+    def _skeleton(self, sc, e, version):
+        """Layout-placed costumes: the character's skeleton for the skeleton view. The importer's skeleton files put
+        the joints within a few millimetres of GreedXplorer's limb positions."""
+        cat = self.afs[e["archive"]].read(e["cat"]) if e["cat"] is not None else None
+        bones, src = cat_skeleton(cat, e["char"], self.sources.skeletons, version)
+        if bones:
+            cat_skel.add_skeleton(sc, bones, src)

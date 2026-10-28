@@ -140,6 +140,16 @@ def bone_position(bones, bone):
     return pos
 
 
+def add_skeleton(scene, bones, source):
+    """Fill scene.bones for the skeleton view: one joint per bone at the sum of its offsets. 'Unknown0' is an empty
+    slot (zero offset, no parent) in every skeleton file, so it is left out."""
+    keep = [b for b in range(min(len(bones), len(PARENT))) if BONE_NAMES[b] != "Unknown0"]
+    at = {b: k for k, b in enumerate(keep)}
+    for b in keep:
+        scene.bones.append(dict(name=BONE_NAMES[b], parent=at.get(PARENT[b], -1), pos=bone_position(bones, b), part=None))
+    scene.info["skeleton"] = source
+
+
 def place(scene, cat, bones, nobjs):
     """Add one part per placed OBJ. Returns the number of objects that found a bone."""
     placed = {}

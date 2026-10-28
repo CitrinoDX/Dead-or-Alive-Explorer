@@ -5,6 +5,8 @@ meshes[i]  = dict(pos (N,3) f4, nrm (N,3) f4, uv (N,2) f4, idx (M,) u4 triangle 
              env: tex is a reflection map, looked up from the view-space normal instead of the UVs
 parts[j]   = dict(name, group, mesh, m (4x4 column-vector matrix), visible)
 textures[k]= dict(w, h, fmt, name) + a decoder returning (h,w,4) uint8 RGBA
+bones[b]   = dict(name, parent (bone index or -1), pos (x,y,z) of the joint, part (index of the part it carries) or None)
+             for the skeleton view only; a bone tied to a part shows while that part does
 basis      = orientation applied on top of every part (viewer and export alike)
 """
 import base64, math
@@ -47,6 +49,7 @@ class Scene:
         self.meshes = []
         self.parts = []
         self.textures = []
+        self.bones = []
         self.note = ""
         self.basis = XBOX_BASIS
         self.info = {}
@@ -65,17 +68,25 @@ class Scene:
                                visible=visible))
 
     def merge(self, other, prefix, place):
-        """Append another scene's textures, meshes and parts (names prefixed). place(part) -> (group, visible, matrix)."""
-        toff, moff = len(self.textures), len(self.meshes)
+        """Append another scene's textures, meshes, parts and bones (names prefixed). place(part) -> (group, visible, matrix).
+        Bones move with the part they carry."""
+        toff, moff, poff, boff = len(self.textures), len(self.meshes), len(self.parts), len(self.bones)
         for k, t in enumerate(other.textures):
             self.add_texture(t["w"], t["h"], t["fmt"], other._decoders[k], name=prefix + t["name"])
         for g in other.meshes:
             if g is not None:
                 g = dict(g, subs=[dict(s, tex=s["tex"] + toff if s["tex"] >= 0 else s["tex"]) for s in g["subs"]])
             self.meshes.append(g)
+        moved = []
         for p in other.parts:
             group, visible, m = place(p)
+            moved.append(np.asarray(m, float) @ np.linalg.inv(p["m"]))
             self.add_part(prefix + p["name"], moff + p["mesh"], m, group, visible)
+        for b in other.bones:
+            k = b["part"]
+            pos = b["pos"] if k is None else (moved[k] @ np.append(b["pos"], 1.0))[:3]
+            self.bones.append(dict(name=prefix + b["name"], parent=b["parent"] + boff if b["parent"] >= 0 else -1,
+                                   pos=pos, part=None if k is None else k + poff))
 
     def default_parts(self, group="All"):
         """One part per non-empty mesh at its stored origin."""
@@ -133,7 +144,9 @@ class Scene:
                                verts=int(len(g["pos"])), tris=int(len(g["idx"]) // 3)))
         parts = [dict(name=p["name"], group=p["group"], mesh=p["mesh"], visible=p["visible"],
                       m=[float(v) for v in np.asarray(p["m"]).T.reshape(-1)]) for p in self.parts]
-        return dict(id=self.id, title=self.title, meshes=meshes, parts=parts, note=self.note, basis=self.basis,
+        bones = [dict(name=b["name"], parent=int(b["parent"]), pos=[float(v) for v in b["pos"]], part=b["part"])
+                 for b in self.bones]
+        return dict(id=self.id, title=self.title, meshes=meshes, parts=parts, bones=bones, note=self.note, basis=self.basis,
                     textures=[dict(i=i, **t) for i, t in enumerate(self.textures)], info=self.info)
 
 

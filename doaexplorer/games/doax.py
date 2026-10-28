@@ -141,3 +141,20 @@ def place_with_cat(sc, x, cat_raw, char, skeleton_dir):
         return
     src = "embedded" if c.bones else "%s.%s" % (char, cat_skel.VERSION_EXT.get(c.version, "?"))
     sc.note = "placed from .cat + %s skeleton (%d of %d meshes)" % (src, n, sum(1 for g in sc.meshes if g))
+    cat_skel.add_skeleton(sc, bones, "skeleton embedded in the .cat" if c.bones else src)
+
+
+def cat_skeleton(cat_raw, char, skeleton_dir, version):
+    """(bones or None, source) for a costume placed some other way (GreedXplorer layout): the skeleton embedded in its
+    .cat, else the user's <char>.<version> file, with the version the .cat names when it has one."""
+    from . import xbox_crypt
+    if cat_raw is not None:
+        try:
+            c = cat_skel.parse_cat(xbox_crypt.decrypt_cat(cat_raw))
+            if c.bones:
+                return c.bones, "skeleton embedded in the .cat"
+            version = c.version
+        except ValueError:
+            pass
+    src = "%s.%s" % (char, cat_skel.VERSION_EXT.get(version, "?"))
+    return (cat_skel.load_skeleton(char, version, skeleton_dir) if char else None), src

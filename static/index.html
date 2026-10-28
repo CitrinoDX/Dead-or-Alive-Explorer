@@ -55,12 +55,19 @@ canvas{position:absolute;inset:0;width:100%;height:100%;display:block;outline:no
 #parts.hide{display:none}
 #parts h2{font-size:12px;margin:0;padding:8px 10px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center}
 #parts h2 a{color:var(--accent);cursor:pointer}
-#plist{overflow:auto;padding:4px 6px 8px;flex:1}
+#plist,#blist{overflow:auto;padding:4px 6px 8px;flex:1}
 .grp{margin-top:6px;color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.05em;display:flex;justify-content:space-between;padding:2px 4px}
 .grp a{color:var(--accent);cursor:pointer;text-transform:none;letter-spacing:0;margin-left:8px}
 .prow{display:flex;align-items:center;gap:6px;padding:2px 4px;border-radius:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .prow:hover{background:var(--panel2)}
 .prow span.o{color:var(--dim);margin-left:auto;font-size:11px}
+#parts h2 .tabs a{color:var(--dim)}
+#parts h2 .tabs a.on{color:var(--text);cursor:default}
+.prow.off{opacity:.45}
+.brow{cursor:pointer}
+.brow.sel{box-shadow:inset 2px 0 var(--accent)}
+#bonetip{position:absolute;z-index:4;pointer-events:none;display:none;transform:translate(12px,-50%);white-space:nowrap;font-size:12px;padding:2px 8px;border-radius:6px;border:1px solid var(--line);background:color-mix(in srgb,var(--panel) 92%,transparent)}
+#bonetip .dim{margin-left:6px}
 #msg{position:absolute;inset:0;display:grid;place-items:center;color:var(--dim);pointer-events:none;font-size:14px;text-align:center;padding:20px}
 /* texture browser */
 #texview{position:absolute;inset:0;padding:56px 14px 14px;overflow:auto;background:var(--bg);display:none;z-index:1}
@@ -125,6 +132,11 @@ canvas{position:absolute;inset:0;width:100%;height:100%;display:block;outline:no
       <span class="chip">
         <label><input type="checkbox" id="wire"> Wireframe</label>
       </span>
+      <select id="skel" title="Skeleton (B)">
+        <option value="0">Skeleton: off</option>
+        <option value="1">Skeleton: on top</option>
+        <option value="2">Skeleton only</option>
+      </select>
       <button class="btn" id="cullbtn" title="Switch culling (Alt+C), same order as GreedXplorer: none, CW, CCW, per material">Culling: per material</button>
       <button class="btn" id="reset">Reset view</button>
       <button class="btn" id="pbtn">Parts</button>
@@ -141,7 +153,8 @@ canvas{position:absolute;inset:0;width:100%;height:100%;display:block;outline:no
     <button class="btn" id="prev" title="Previous entry (←)">◀</button>
     <button class="btn" id="next" title="Next entry (→)">▶</button>
   </div>
-  <div id="parts"><h2><span>Parts</span><span><a id="pall">all</a> · <a id="pnone">none</a></span></h2><div id="plist"></div></div>
+  <div id="parts"><h2><span class="tabs"><a id="tabparts" class="on">Parts</a><span id="tabsep"> · </span><a id="tabbones" title="The skeleton's bones (B shows the skeleton)">Bones</a></span><span id="partlinks"><a id="pall">all</a> · <a id="pnone">none</a></span></h2><div id="plist"></div><div id="blist"></div></div>
+  <div id="bonetip"></div>
   <div id="info"></div>
   <div id="msg">Pick a game and an entry on the left</div>
 </main>
@@ -235,6 +248,7 @@ void main(){
   if(uMode==0) c = tex.rgb*uColor.rgb*l;
   else if(uMode==1) c = tex.rgb*uColor.rgb;
   else if(uMode==2) c = n*0.5+0.5;
+  else if(uMode==4) c = uColor.rgb*l;
   else c = vec3(0.7)*l;
   float a = (uMode==0||uMode==1) ? tex.a : 1.0;
   if(a<uCut) discard;
@@ -245,7 +259,8 @@ const U = {}; for(const n of ["uProj","uView","uModel","uTex","uHasTex","uMode",
 
 /* ---------------- state ---------------- */
 const CAM0 = {yaw:Math.PI, pitch:0.12};
-const S = { games:[], game:null, model:null, parts:[], tex:[], cam:{yaw:CAM0.yaw,pitch:CAM0.pitch,dist:3,target:[0,0.2,0]}, hi:-1, cur:null, curList:[], view:"3d", lb:-1, lbZoom:1 };
+const S = { games:[], game:null, model:null, parts:[], tex:[], cam:{yaw:CAM0.yaw,pitch:CAM0.pitch,dist:3,target:[0,0.2,0]}, hi:-1, cur:null, curList:[], view:"3d", lb:-1, lbZoom:1,
+            bones:[], boneGL:null, boneHi:-1, boneHover:-1, boneSel:-1, skel:0, ptab:"parts" };
 const whiteTex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D,whiteTex);
 gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,1,1,0,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array([255,255,255,255]));
 
@@ -256,6 +271,7 @@ function freeModel(){
   if(!S.model) return;
   for(const o of S.model.meshes) if(o){ for(const k of ["vao","bp","bn","bu","bi","lines"]) if(o[k]) (k==="vao"?gl.deleteVertexArray(o[k]):gl.deleteBuffer(o[k])); }
   for(const t of S.tex) if(t) gl.deleteTexture(t);
+  freeBones();
   S.model=null; S.tex=[];
 }
 
@@ -285,7 +301,7 @@ async function loadModel(id){
   S.model=data; S.parts=data.parts; S.cur=id;
   S.tex=new Array(data.textures.length).fill(null);
   data.textures.forEach(t=>loadTex(id,t.i));
-  buildPartsUI(); buildTexUI(); frame();
+  buildBones(data); buildPartsUI(); buildBonesUI(); buildTexUI(); frame();
   $("msg").style.display="none";
   const nm=data.meshes.filter(Boolean).length;
   $("title").textContent=data.title+"  ·  "+nm+" meshes · "+data.textures.length+" textures";
@@ -349,13 +365,13 @@ function wireOf(o){
 }
 function draw(){
   requestAnimationFrame(draw);
-  if(S.view!=="3d") return;
+  if(S.view!=="3d"){ $("bonetip").style.display="none"; return; }
   resize();
   gl.viewport(0,0,canvas.width,canvas.height);
   const dark=!matchMedia("(prefers-color-scheme: light)").matches;
   const bg=dark?[0.09,0.10,0.13]:[0.86,0.88,0.92];
   gl.clearColor(bg[0],bg[1],bg[2],1); gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
-  if(!S.model) return;
+  if(!S.model){ $("bonetip").style.display="none"; return; }
   const c=S.cam, cp=Math.cos(c.pitch);
   const eye=[c.target[0]+c.dist*cp*Math.sin(c.yaw), c.target[1]+c.dist*Math.sin(c.pitch), c.target[2]+c.dist*cp*Math.cos(c.yaw)];
   const size=c.size||1;
@@ -365,8 +381,8 @@ function draw(){
   gl.uniformMatrix4fv(U.uProj,false,proj); gl.uniformMatrix4fv(U.uView,false,view);
   gl.uniform1i(U.uTex,0); gl.uniform1i(U.uMode,+$("mode").value);
   gl.enable(gl.DEPTH_TEST); gl.frontFace(S.model.basis.front==="ccw"?gl.CCW:gl.CW);
-  const wire=$("wire").checked, cm=S.cullMode;
-  for(const transp of [false,true]){
+  const wire=$("wire").checked, cm=S.cullMode, sk=S.bones.length?S.skel:0;
+  for(const transp of sk===2?[]:[false,true]){
     gl.depthMask(!transp);
     if(transp){gl.enable(gl.BLEND);gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);} else gl.disable(gl.BLEND);
     S.parts.forEach((p,pi)=>{
@@ -400,20 +416,25 @@ function draw(){
     });
   }
   gl.depthMask(true); gl.disable(gl.BLEND);
+  S.pv=M.mul(proj,view);
+  if(sk) drawBones(sk);
+  placeTip(sk);
 }
 
 /* ---------------- input ---------------- */
 let drag=null;
-canvas.addEventListener("pointerdown",e=>{canvas.setPointerCapture(e.pointerId);drag={x:e.clientX,y:e.clientY,pan:e.button===2||e.button===1||e.shiftKey};});
+canvas.addEventListener("pointerdown",e=>{canvas.setPointerCapture(e.pointerId);drag={x:e.clientX,y:e.clientY,pan:e.button===2||e.button===1||e.shiftKey,moved:0};});
 canvas.addEventListener("pointermove",e=>{
-  if(!drag) return; const dx=e.clientX-drag.x, dy=e.clientY-drag.y; drag.x=e.clientX; drag.y=e.clientY;
+  if(!drag){ pickBone(e); return; }
+  const dx=e.clientX-drag.x, dy=e.clientY-drag.y; drag.x=e.clientX; drag.y=e.clientY; drag.moved+=Math.abs(dx)+Math.abs(dy);
   const c=S.cam;
   if(drag.pan){
     const k=c.dist*0.0016, cy=Math.cos(c.yaw), sy=Math.sin(c.yaw);
     c.target[0]+=(-dx*cy)*k; c.target[2]+=(dx*sy)*k; c.target[1]+=dy*k;
   } else { c.yaw-=dx*0.008; c.pitch=Math.max(-1.5,Math.min(1.5,c.pitch+dy*0.008)); }
 });
-canvas.addEventListener("pointerup",()=>drag=null);
+canvas.addEventListener("pointerup",()=>{ if(drag&&drag.moved<4&&S.boneHover>=0) focusBone(S.boneHover); drag=null; });
+canvas.addEventListener("pointerleave",()=>{ S.boneHover=-1; });
 canvas.addEventListener("contextmenu",e=>e.preventDefault());
 canvas.addEventListener("wheel",e=>{e.preventDefault();S.cam.dist*=Math.exp(e.deltaY*0.001);},{passive:false});
 window.addEventListener("keydown",e=>{
@@ -426,6 +447,7 @@ window.addEventListener("keydown",e=>{
   if(e.key==="ArrowRight") step(1); else if(e.key==="ArrowLeft") step(-1);
   else if(e.key==="t"||e.key==="T"){ S.texSticky=S.view!=="tex"; setView(S.view==="tex"?"3d":"tex"); }
   else if(e.altKey && (e.key==="c"||e.key==="C")){ e.preventDefault(); cycleCull(); }
+  else if((e.key==="b"||e.key==="B") && !e.ctrlKey && !e.metaKey && !e.altKey && S.bones.length) setSkel((S.skel+1)%3);
 });
 
 /* ---------------- parts ---------------- */
@@ -444,11 +466,151 @@ function buildPartsUI(){
       const o=S.model.meshes[p.mesh];
       const r=document.createElement("label"); r.className="prow";
       r.innerHTML='<input type="checkbox"'+(p.on?" checked":"")+'><span>'+esc(p.name)+'</span><span class="o">'+esc(o&&o.name||("#"+p.mesh))+'</span>';
-      r.querySelector("input").onchange=ev=>{p.on=ev.target.checked;};
+      r.querySelector("input").onchange=ev=>{p.on=ev.target.checked; markBones();};
       r.onmouseenter=()=>S.hi=i; r.onmouseleave=()=>S.hi=-1;
       L.appendChild(r);
     });
   }
+  markBones();
+}
+
+/* ---------------- skeleton ---------------- */
+// off / drawn on top of the model / without the model. Joints are in world space (basis applied); every bone draws as a
+// small diamond at its joint plus an octahedron reaching back to its parent's joint. A bone tied to a part (TPR node
+// trees) shows only while that part does, so hidden low-detail copies and spare heads keep their bones out of the way.
+const IDENT=new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]);
+const V3={ sub:(a,b)=>[a[0]-b[0],a[1]-b[1],a[2]-b[2]], cross:(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]],
+  norm:a=>{ const l=Math.hypot(a[0],a[1],a[2])||1; return [a[0]/l,a[1]/l,a[2]/l]; } };
+const boneOn=b=>b.part==null||!!(S.parts[b.part]&&S.parts[b.part].on);
+const boneHiIdx=()=>S.boneHi>=0?S.boneHi:S.boneHover;
+function freeBones(){
+  if(S.boneGL){ gl.deleteVertexArray(S.boneGL.vao); gl.deleteBuffer(S.boneGL.bp); gl.deleteBuffer(S.boneGL.bn); }
+  S.boneGL=null; S.bones=[]; S.boneHi=S.boneHover=S.boneSel=-1; $("bonetip").dataset.i="";
+}
+function buildBones(data){
+  const B=data.basis.m;
+  S.bones=(data.bones||[]).map(b=>{ const [x,y,z]=b.pos;
+    return {name:b.name, parent:b.parent, part:b.part,
+            w:[B[0]*x+B[4]*y+B[8]*z+B[12], B[1]*x+B[5]*y+B[9]*z+B[13], B[2]*x+B[6]*y+B[10]*z+B[14]]}; });
+  if(!S.bones.length) return;
+  // marker size from the extent of the bones shown at first (Zack's rope props reach 500 units out, hidden)
+  const ok=b=>b.w.every(isFinite), shown=S.bones.filter(b=>ok(b)&&boneOn(b));
+  const lo=[1e9,1e9,1e9], hi=[-1e9,-1e9,-1e9];
+  for(const b of shown.length?shown:S.bones.filter(ok)) for(let k=0;k<3;k++){ lo[k]=Math.min(lo[k],b.w[k]); hi[k]=Math.max(hi[k],b.w[k]); }
+  const ext=hi[0]>=lo[0]?Math.hypot(hi[0]-lo[0],hi[1]-lo[1],hi[2]-lo[2]):0, jr=ext>0?ext*0.006:0.01;
+  const pos=[], nrm=[];
+  const tri=(a,b,c)=>{ const n=V3.norm(V3.cross(V3.sub(b,a),V3.sub(c,a))); pos.push(...a,...b,...c); nrm.push(...n,...n,...n); };
+  const oct=(h,t,ring)=>{ for(let k=0;k<4;k++){ const r0=ring[k], r1=ring[(k+1)%4]; tri(h,r0,r1); tri(t,r1,r0); } };
+  const around=(c,u,v,r)=>[[1,0],[0,1],[-1,0],[0,-1]].map(([a,b])=>[0,1,2].map(k=>c[k]+(u[k]*a+v[k]*b)*r));
+  S.bones.forEach(b=>{
+    b.start=pos.length/3;
+    const c=b.w, p=S.bones[b.parent];
+    if(ok(b)){
+      oct([c[0],c[1]-jr,c[2]], [c[0],c[1]+jr,c[2]], around(c,[1,0,0],[0,0,1],jr));
+      if(p && p!==b && ok(p)){
+        const d=V3.sub(c,p.w), L=Math.hypot(d[0],d[1],d[2]);
+        if(L>jr*1.5){
+          const dn=[d[0]/L,d[1]/L,d[2]/L], u=V3.norm(V3.cross(dn,Math.abs(dn[1])<0.9?[0,1,0]:[1,0,0])), v=V3.cross(u,dn);
+          oct(p.w, c, around([0,1,2].map(k=>p.w[k]+d[k]*0.2), u, v, Math.min(Math.max(L*0.08,jr*0.5),jr*1.6)));
+        }
+      }
+    }
+    b.count=pos.length/3-b.start;
+  });
+  const G=S.boneGL={vao:gl.createVertexArray(), n:pos.length/3};
+  gl.bindVertexArray(G.vao);
+  const mk=(arr,loc)=>{ const b=gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER,b); gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(arr),gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc,3,gl.FLOAT,false,0,0); return b; };
+  G.bp=mk(pos,0); G.bn=mk(nrm,1);
+  gl.bindVertexArray(null);
+}
+function drawBones(sk){
+  const G=S.boneGL, B=S.bones; if(!G) return;
+  if(sk===1) gl.clear(gl.DEPTH_BUFFER_BIT);   // over the model
+  gl.enable(gl.DEPTH_TEST); gl.disable(gl.CULL_FACE); gl.disable(gl.BLEND); gl.depthMask(true);
+  gl.bindVertexArray(G.vao);
+  gl.uniformMatrix4fv(U.uModel,false,IDENT); gl.uniform1i(U.uMode,4); gl.uniform1i(U.uHasTex,0); gl.uniform1i(U.uEnv,0);
+  gl.uniform1f(U.uCut,0); gl.uniform1f(U.uHi,0);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,whiteTex);
+  gl.uniform4f(U.uColor,0.33,0.62,1.0,1);
+  // bones sit back to back in the buffer: draw each unbroken run of shown bones in one call
+  const hi=boneHiIdx(); let run=-1;
+  const flush=end=>{ if(run>=0&&end>run) gl.drawArrays(gl.TRIANGLES,run,end-run); run=-1; };
+  B.forEach((b,i)=>{ if(boneOn(b)&&i!==hi){ if(run<0) run=b.start; } else flush(b.start); });
+  flush(G.n);
+  const h=B[hi];
+  if(h&&boneOn(h)&&h.count){ gl.disable(gl.DEPTH_TEST); gl.uniform4f(U.uColor,1.0,0.68,0.2,1); gl.drawArrays(gl.TRIANGLES,h.start,h.count); gl.enable(gl.DEPTH_TEST); }
+}
+function project(w){
+  const m=S.pv; if(!m) return null;
+  const x=w[0], y=w[1], z=w[2], cw=m[3]*x+m[7]*y+m[11]*z+m[15]; if(!(cw>1e-6)) return null;
+  const cx=(m[0]*x+m[4]*y+m[8]*z+m[12])/cw, cy=(m[1]*x+m[5]*y+m[9]*z+m[13])/cw;
+  return [(cx*0.5+0.5)*canvas.clientWidth, (0.5-cy*0.5)*canvas.clientHeight];
+}
+function placeTip(sk){
+  const t=$("bonetip"), i=boneHiIdx(), b=S.bones[i], s=sk&&b&&boneOn(b)?project(b.w):null;
+  if(!s){ t.style.display="none"; return; }
+  if(t.dataset.i!==String(i)){
+    const p=S.bones[b.parent]; t.dataset.i=String(i);
+    t.innerHTML=esc(b.name)+(p&&p!==b?'<span class="dim">child of '+esc(p.name)+'</span>':'');
+  }
+  t.style.left=s[0]+"px"; t.style.top=s[1]+"px"; t.style.display="block";
+}
+function pickBone(e){
+  // the nearest shown joint within 10 px of the pointer
+  S.boneHover=-1;
+  if(S.skel&&S.bones.length&&S.view==="3d"){
+    const r=canvas.getBoundingClientRect(), mx=e.clientX-r.left, my=e.clientY-r.top; let best=100;
+    S.bones.forEach((b,i)=>{ if(!boneOn(b)) return; const s=project(b.w); if(!s) return;
+      const d=(s[0]-mx)**2+(s[1]-my)**2; if(d<best){ best=d; S.boneHover=i; } });
+  }
+  canvas.style.cursor=S.boneHover>=0?"pointer":"";
+}
+function focusBone(i){
+  const b=S.bones[i]; if(!b) return;
+  S.cam.target=b.w.slice();
+  if(S.bones[S.boneSel]&&S.bones[S.boneSel].row) S.bones[S.boneSel].row.classList.remove("sel");
+  S.boneSel=i;
+  if(b.row){ b.row.classList.add("sel"); setPanelTab("bones"); b.row.scrollIntoView({block:"nearest"}); }
+}
+function markBones(){ for(const b of S.bones) if(b.row) b.row.classList.toggle("off",!boneOn(b)); }
+function setPanelTab(t){
+  if(t) S.ptab=t;
+  const cur=S.ptab==="bones"&&S.bones.length?"bones":"parts";
+  $("tabparts").classList.toggle("on",cur==="parts"); $("tabbones").classList.toggle("on",cur==="bones");
+  $("plist").style.display=cur==="parts"?"":"none"; $("blist").style.display=cur==="bones"?"":"none";
+  $("partlinks").style.visibility=cur==="parts"?"":"hidden";
+}
+function setSkel(m){
+  S.skel=m===1||m===2?m:0; $("skel").value=String(S.skel);
+  if(S.bones.length) setPanelTab(S.skel?"bones":"parts");
+}
+function buildBonesUI(){
+  const L=$("blist"), n=S.bones.length; L.innerHTML="";
+  $("tabbones").style.display=$("tabsep").style.display=n?"":"none";
+  $("skel").disabled=!n; $("skel").title=n?"Skeleton (B)":"No skeleton for this entry";
+  setPanelTab();
+  if(!n) return;
+  const src=S.model&&S.model.info&&S.model.info.skeleton;
+  const h=document.createElement("div"); h.className="grp";
+  h.innerHTML="<span>"+n+" bones"+(src?" · "+esc(src):"")+"</span>";
+  L.appendChild(h);
+  // depth first, each bone indented under its parent
+  const has=(b,i)=>b.parent>=0&&b.parent<n&&b.parent!==i, kids=S.bones.map(()=>[]), seen=new Set();
+  S.bones.forEach((b,i)=>{ if(has(b,i)) kids[b.parent].push(i); });
+  const walk=(i,d)=>{
+    if(seen.has(i)) return; seen.add(i);
+    const b=S.bones[i], p=b.part!=null?S.parts[b.part]:null;
+    const r=document.createElement("div"); r.className="prow brow"; r.style.paddingLeft=(4+Math.min(d,16)*10)+"px";
+    r.innerHTML='<span>'+esc(b.name)+'</span><span class="o">'+esc(p?p.group:"")+'</span>';
+    r.onmouseenter=()=>S.boneHi=i; r.onmouseleave=()=>S.boneHi=-1; r.onclick=()=>focusBone(i);
+    b.row=r; L.appendChild(r);
+    for(const k of kids[i]) walk(k,d+1);
+  };
+  // trees shown at first go on top (DOA4 files store the hidden low-detail copy before the model)
+  for(const on of [true,false]) S.bones.forEach((b,i)=>{ if(!has(b,i)&&boneOn(b)===on) walk(i,0); });
+  S.bones.forEach((b,i)=>walk(i,0));   // anything caught in a parent loop
+  markBones();
 }
 
 /* ---------------- texture browser ---------------- */
@@ -526,6 +688,9 @@ $("viewbtn").onclick=()=>{ S.texSticky=S.view!=="tex"; setView(S.view==="tex"?"3
 $("pbtn").onclick=()=>$("parts").classList.toggle("hide");
 $("pall").onclick=()=>{S.parts.forEach(p=>p.on=true);buildPartsUI();};
 $("pnone").onclick=()=>{S.parts.forEach(p=>p.on=false);buildPartsUI();};
+$("tabparts").onclick=()=>setPanelTab("parts"); $("tabbones").onclick=()=>setPanelTab("bones");
+$("skel").onchange=e=>{ setSkel(+e.target.value); e.target.blur(); };
+buildBonesUI();
 $("prev").onclick=()=>step(-1); $("next").onclick=()=>step(1);
 function step(d){
   const i=S.curList.indexOf(S.cur); if(i<0) return;
@@ -602,7 +767,7 @@ async function loadGames(){
   }
   showGame(S.games.find(g=>g.key===S.game));
   if(!S.games.some(g=>!g.error)){
-    S.game=null; freeModel(); S.parts=[]; S.cur=null; buildPartsUI();
+    S.game=null; freeModel(); S.parts=[]; S.cur=null; buildPartsUI(); buildBonesUI();
     $("tree").innerHTML=""; $("folder").textContent=""; $("title").textContent="No model loaded"; $("info").textContent="";
     $("msg").textContent="No games added yet. Open Setup to point the viewer at your own game files.";
     $("msg").style.display="grid";

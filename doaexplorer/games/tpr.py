@@ -263,12 +263,20 @@ def to_scene(sid, raw, title=None, character=False):
         groups = detail_groups(t, sc.meshes, mats)
     else:
         groups = {i: "All" for i, g in enumerate(sc.meshes) if g is not None}
+    part_of = {}
     for i, g in enumerate(sc.meshes):
         if g is not None:
+            part_of[i] = len(sc.parts)
             sc.add_part(g["name"], i, mats.get(i), group=groups[i], visible=groups[i] in ("Model", "All"))
+    # the node tree is the skeleton: every object hangs off a node, and DOAX2 swimsuits add bare bones without a mesh
+    for n in t.nodes:
+        sc.bones.append(dict(name="OBJ%02d" % n["idx"], parent=n["parent"] if n["parent"] < len(t.nodes) else -1,
+                             pos=mats[n["idx"]][:3, 3], part=part_of.get(n["idx"])))
     for tx in t.textures:
         sc.add_texture(tx["w"], tx["h"], texture.x360_format_name(tx["fmt"]) + ("" if tx["kind"] == "TX2D" else " " + tx["kind"]),
                        (lambda tx=tx: texture.decode_x360(t.data, tx["offset"], tx["fmt"], tx["endian"], tx["w"], tx["h"], tx["tiled"])),
                        name=tx["name"])
     sc.info = dict(meshes=len(t.objs), textures=len(t.textures), nodes=len(t.nodes), format="XPR2 / TPR (Xbox 360)")
+    if t.nodes:
+        sc.info["skeleton"] = "node hierarchy"
     return sc, t
