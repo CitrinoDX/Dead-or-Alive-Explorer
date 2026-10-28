@@ -5,5 +5,8 @@ from .doax import DOAX
 from .doax2 import DOAX2
 from .doa4 import DOA4
 
-GAMES = [DOA2U, DOA1U, DOAX, DOAX2, DOA4]
+GAMES = [DOA1U, DOA2U, DOA4, DOAX, DOAX2]
 BY_KEY = {g.key: g for g in GAMES}
+# the game picker's fixed order; every game is listed, greyed out until it is added (or, for PLANNED, supported)
+ORDER = ["doa1u", "doa2u", "doa3", "doa4", "doax", "doax2"]
+PLANNED = {"doa3": ("Dead or Alive 3", "Xbox")}

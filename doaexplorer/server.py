@@ -6,7 +6,7 @@ from collections import OrderedDict
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs, unquote
 from . import export, config, __version__
-from .games import GAMES, BY_KEY
+from .games import GAMES, BY_KEY, ORDER, PLANNED
 from .sources import Sources, find_greedxplorer, find_skeletons
 
 STATIC = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "static"))
@@ -133,12 +133,21 @@ class App:
             return sc
 
     # ---- JSON
-    def games_json(self):
+    def games_json(self, everything=False):
+        """Added games in the picker's order; everything=True also lists the games not added yet (added=False)."""
         with self.lock:
-            out = [dict(key=k, title=g.title, platform=g.platform, folder=g.folder, summary=g.summary())
-                   for k, g in self.games.items()]
-            out += [dict(key=k, title=BY_KEY[k].title if k in BY_KEY else k, folder=f, error=m)
-                    for k, (f, m) in self.errors.items()]
+            have = {k: dict(key=k, title=g.title, platform=g.platform, folder=g.folder, summary=g.summary())
+                    for k, g in self.games.items()}
+            for k, (f, m) in self.errors.items():
+                have[k] = dict(key=k, title=BY_KEY[k].title if k in BY_KEY else k,
+                               platform=BY_KEY[k].platform if k in BY_KEY else "", folder=f, error=m)
+        out = []
+        for k in ORDER + [k for k in have if k not in ORDER]:
+            if k in have:
+                out.append(dict(have[k], added=True, supported=True))
+            elif everything:
+                title, platform = (BY_KEY[k].title, BY_KEY[k].platform) if k in BY_KEY else PLANNED[k]
+                out.append(dict(key=k, title=title, platform=platform, added=False, supported=k in BY_KEY))
         return out
 
     def setup_json(self):
@@ -215,7 +224,7 @@ def make_handler(app):
                     return self.send(404, "not found", "text/plain")
                 cmd = parts[1]
                 if cmd == "games":
-                    return self.json(app.games_json())
+                    return self.json(app.games_json(everything=True))
                 if cmd == "setup":
                     return self.json(app.setup_json())
                 key = parts[2] if len(parts) > 2 else None
