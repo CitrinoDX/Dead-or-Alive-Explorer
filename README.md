@@ -59,7 +59,7 @@ options: --port 8765  --no-browser  --forget KEY  --version
 | DOA2U | 418/418 entries load. Costumes assemble with GreedXplorer layouts (258 exact); the 25 `A#` costumes are DOA3 models and use GreedXplorer's DOA3 layouts, matched by mesh and texture count |
 | DOA1U | 135/135 load. Only gen00/jan00/jan01 have layouts and there are no `.cat` files, so the rest show unassembled. Stages are texture-only |
 | DOAX | 2593/2593 load. Bodies (`v<code>NN`) and ~2000 swimsuits/accessories (`md<item><wearer>`) placed from each `.cat` bone map + the wearer's skeleton. 19 items use a newer `.cat` variant and show unassembled |
-| DOAX2 | 1016/1016 load. Bodies, heads, swimsuits, items, boats, stages; placed from the file's own node tree |
+| DOAX2 | 1016/1016 load. Bodies, heads, swimsuits, items, boats, stages; placed from the file's own node tree. Swimsuits show the owner's fit; the fits for the other body types are toggles in the parts panel |
 | DOA4 | 854/854 load and every texture on the disc decodes (19,952). 23 characters plus a cutscene cast (117 costumes, 25 heads, 17 colour variants listed with their base), 24 stages, effects, menus and 635 online-lobby avatar parts; placed from the file's own node tree. Head-swap characters get their `AA` head, the other hairstyles are toggles in the parts panel |
 
 ## Versions
@@ -118,6 +118,16 @@ Verified unless marked otherwise.
   from the end. DOA4 also uses format 0x0A (8_8, stage water-ripple frames).
   Material alpha blending is the dword at +0x50: it is set on every material whose texture has alpha (DOA4 characters
   1124/1124, DOAX2 699/699). The dword at +0x04 only ever appears on opaque textures and is not the transparency flag.
+- DOAX2 body types: the nine girls share five skeletons (joint positions identical to 0.0000): Kasumi + Ayane, Helena +
+  Lisa, Hitomi + Kokoro + Lei Fang, Christie, Tina. Bodies of the same type differ only in the neck piece. Swimsuits
+  (`<owner>_<type>_<letter>_m` in werone/wertwo) hold the outfit once per body type, each a separate 37-node tree that
+  repeats that type's joints exactly (290 of 340 files; the nearest other type is 7 mm off). The 49 `cs_` outfits and
+  exclusives (`vks_on_p`, `vtn_on_s`, the paired `*_sk_*`, ...) hold the owner's fit only. Same-name repeats are design
+  variants (textures always differ, geometry usually). Loose objects outside the trees: a fit's objects form one run of
+  object indices, and its loose pieces (rigid cups and bows) sit at the same offset in or just before every run; a loose
+  tree split off a fit (Tina's bottom in `vht_ch_a`) keeps its other nodes inside that fit's run. Pieces stored once (bead
+  rows, tassel chains, helper quads, ornaments kept with the middle fit only) are shared props. Node list order is not
+  object order in these files.
 - DOA4 character files hold the model three times: full detail, a low-detail copy, and an untextured shadow copy built from
   the low one (its objects have the low copy's exact bounds). The viewer pairs each shadow object with the same-bounds
   textured object closest in vertex count; the hierarchy root those partners belong to is the low-detail set. Both start

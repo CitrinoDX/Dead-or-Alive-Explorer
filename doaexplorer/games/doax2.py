@@ -1,6 +1,15 @@
 """Dead or Alive Xtreme 2 (Xbox 360): XPR2/TPR models in chr / werone / wertwo / itm / boat / stg / avt .afs, read
-straight from the disc image or an extracted folder."""
-import os
+straight from the disc image or an extracted folder.
+The nine girls share five skeletons (Kasumi and Ayane; Helena and Lisa; Hitomi, Kokoro and Lei Fang; Christie; Tina),
+and so do their bodies apart from the neck. Swimsuits <owner>_<type>_<letter>_m carry the outfit once per body type, a
+separate node tree each; the 'cs' outfits and a few exclusives carry only the owner's fit. Each tree is matched to the
+body type whose joints it repeats, and only the owner's fit is shown.
+Some pieces of each fit are loose objects outside its tree (rigid cups and bows): a fit's objects form one run of
+object indices, and its loose pieces sit at the same place in or just before every run. A loose tree split off a fit
+(Tina's bottom in vht_ch_a) keeps its other nodes inside that fit's run. Pieces stored once (bead rows, tassel chains,
+helper quads, ornaments kept with the middle fit only) are shared props, shown with every fit."""
+import collections, os
+import numpy as np
 from ..afs import Afs
 from .. import vfs
 from .base import Game
@@ -13,6 +22,29 @@ NAMES = {
 # archive -> sidebar section for entries that are not tied to a character
 ARCHIVES = (("chr", "Bodies"), ("werone", "Swimsuits"), ("wertwo", "Swimsuits"), ("itm", "Items"),
             ("boat", "Boats"), ("stg", "Stages"), ("avt", "Avatar"))
+# a fitted copy repeats its body type's joints exactly (0.0000); the nearest other body type is 7 mm off
+FIT_TOL = 0.002
+
+
+def hierarchies(t):
+    """-> [(node list positions with the root first, (n,3) joint positions)] for each separate node tree, in file order"""
+    n = len(t.nodes)
+    glob, root = [None] * n, [None] * n
+
+    def walk(i, depth=0):
+        if glob[i] is None:
+            p = t.nodes[i]["parent"]
+            if p >= n or depth > 64:
+                glob[i], root[i] = t.nodes[i]["m"], i
+            else:
+                walk(p, depth + 1)
+                glob[i], root[i] = glob[p] @ t.nodes[i]["m"], root[p]
+    by = {}
+    for i in range(n):
+        walk(i)
+        by.setdefault(root[i], []).append(i)
+    trees = [[r] + [i for i in v if i != r] for r, v in sorted(by.items(), key=lambda kv: kv[1][0])]
+    return [(v, np.array([glob[i][:3, 3] for i in v])) for v in trees]
 
 
 class DOAX2(Game):
@@ -60,6 +92,84 @@ class DOAX2(Game):
                 self.entries["%s:%d" % (arch, i)] = dict(archive=arch, index=i, char=char, section=section,
                                                          label=label, name=nm, size=afs.size(i))
         self._tree = None
+        self._types = None
+
+    def body_types(self):
+        """[(label, codes, joints)]: the girls grouped by identical skeletons, read from their <code>1.tpr bodies"""
+        if self._types is None:
+            chr_, types = self.afs.get("chr"), []
+            for c in NAMES:
+                i = chr_.find(c + "1.tpr") if chr_ else None
+                if i is None:
+                    continue
+                joints = max(hierarchies(tpr.parse_tpr(chr_.read(i))), key=lambda h: len(h[0]))[1]
+                for ty in types:
+                    if len(ty[1]) == len(joints) and np.abs(ty[1] - joints).max() < 1e-4:
+                        ty[0].append(c)
+                        break
+                else:
+                    types.append(([c], joints))
+            self._types = [(" / ".join(self.names[c] for c in codes), codes, j) for codes, j in types]
+        return self._types
+
+    def group_fits(self, sc, t, owner):
+        """Swimsuits: name each node tree after the body type it fits ('Fit: Kasumi / Ayane'), file the loose pieces
+        with their fit (see the module notes), show the owner's fit and the props, hide the other fits. Bare bones (most
+        of each tree) hang off the nearest part above them, else any part of their tree, so the skeleton view hides them
+        with their fit."""
+        node_of = {n["idx"]: i for i, n in enumerate(t.nodes)}
+        trees, fits, loose = hierarchies(t), [], []
+        for nodes, joints in trees:
+            best = None
+            for label, codes, B in self.body_types():
+                d = np.linalg.norm(B[:, None] - joints[None], axis=2).min(1).max()   # every body joint is repeated
+                if d < FIT_TOL and (best is None or d < best[0]):
+                    best = (d, label, codes)
+            idx = [t.nodes[i]["idx"] for i in nodes]
+            if best:
+                fits.append(dict(group="Fit: " + best[1], codes=best[2], nodes=nodes, lo=min(idx), hi=max(idx)))
+            else:
+                loose.append((nodes, idx[1:] or idx))   # a loose tree's root can sit far from its other nodes
+        if not fits:
+            return
+        fits.sort(key=lambda f: f["lo"])
+        tree_of = {i: f["group"] for f in fits for i in f["nodes"]}
+        placed = []
+        for nodes, idx in loose:
+            k = next((k for k, f in enumerate(fits) if f["hi"] >= min(idx)), None)
+            split = k is not None and len(nodes) > 1 and all(fits[k]["lo"] < i <= fits[k]["hi"] for i in idx)
+            placed.append((nodes, k, None if k is None else min(idx) - fits[k]["lo"], split))
+        every = collections.Counter(off for _, k, off, _ in placed if k is not None)
+        for nodes, k, off, split in placed:
+            group = fits[k]["group"] if split or (k is not None and every[off] == len(fits)) else "Props"
+            for i in nodes:
+                tree_of[i] = group
+        mine = [f["group"] for f in fits if owner in f["codes"]] or [fits[0]["group"]]
+        for p in sc.parts:
+            p["group"] = tree_of.get(node_of.get(p["mesh"]), "Props")
+            p["visible"] = p["group"] in (mine[0], "Props")
+        order = sorted(range(len(sc.parts)), key=lambda j: not sc.parts[j]["visible"])
+        new = {j: k for k, j in enumerate(order)}
+        sc.parts = [sc.parts[j] for j in order]
+        for b in sc.bones:
+            if b["part"] is not None:
+                b["part"] = new[b["part"]]
+        part_at = {node_of.get(p["mesh"]): j for j, p in enumerate(sc.parts)}
+        for nodes, _ in trees:
+            first = next((part_at[i] for i in nodes if i in part_at), None)
+            for i in nodes:
+                a = sc.bones[i]
+                for _ in range(64):
+                    if a["part"] is not None or a["parent"] < 0:
+                        break
+                    a = sc.bones[a["parent"]]
+                sc.bones[i]["part"] = first if a["part"] is None else a["part"]
+        sc.info["fits"] = ", ".join(f["group"][5:] for f in fits)
+        if len(fits) > 1:
+            sc.note = "%d fitted copies, one per body type - showing %s; the others are hidden groups in the parts panel" % (
+                len(fits), mine[0][5:])
+        else:
+            sc.note = "fitted to %s only" % fits[0]["group"][5:]
 
     def tree(self):
         if self._tree is None:
@@ -92,4 +202,6 @@ class DOAX2(Game):
             sc.note = "texture bundle (no meshes)"
         elif not t.nodes:
             sc.note = "no node hierarchy - parts shown at their stored origin"
+        elif e["archive"] in ("werone", "wertwo"):
+            self.group_fits(sc, t, e["char"])
         return sc
