@@ -1,6 +1,8 @@
-"""Dead or Alive Xtreme 2 (Xbox 360): XPR2/TPR models in chr / werone / wertwo / itm / boat / stg / avt .afs."""
+"""Dead or Alive Xtreme 2 (Xbox 360): XPR2/TPR models in chr / werone / wertwo / itm / boat / stg / avt .afs, read
+straight from the disc image or an extracted folder."""
 import os
 from ..afs import Afs
+from .. import vfs
 from .base import Game
 from . import tpr
 
@@ -17,19 +19,29 @@ class DOAX2(Game):
     key = "doax2"
     title = "Dead or Alive Xtreme 2"
     platform = "Xbox 360"
-    hint = "the extracted disc folder with chr.afs, werone.afs, ... and default.xex"
+    hint = "the disc image (.iso) or an extracted folder with chr.afs, werone.afs, ... and default.xex"
 
     @classmethod
     def find_root(cls, folder):
-        for f in (folder, os.path.join(folder, "doax2")):
-            if os.path.exists(os.path.join(f, "chr.afs")) and os.path.exists(os.path.join(f, "default.xex")):
-                return f
-        return None
+        try:
+            if vfs.is_disc_image(folder):
+                cands = [(folder, vfs.XIso(folder))]
+            elif os.path.isdir(folder):
+                cands = [(f, vfs.DirFS(f)) for f in (folder, os.path.join(folder, "doax2")) if os.path.isdir(f)]
+            else:
+                return None
+            for f, src in cands:
+                if src.exists("chr.afs") and src.exists("default.xex"):
+                    return f
+            return None
+        except (OSError, ValueError):
+            return None
 
     def __init__(self, folder, names=None, sources=None):
         super().__init__(folder, names, sources)
         self.names = dict(NAMES, **(names or {}))
-        self.afs = {a: Afs(os.path.join(folder, a + ".afs")) for a, _ in ARCHIVES if os.path.exists(os.path.join(folder, a + ".afs"))}
+        self.src = vfs.open_source(folder)
+        self.afs = {a: Afs(a + ".afs", self.src.open(a + ".afs")) for a, _ in ARCHIVES if self.src.exists(a + ".afs")}
         self.entries = {}
         for arch, section in ARCHIVES:
             afs = self.afs.get(arch)

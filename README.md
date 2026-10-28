@@ -19,7 +19,7 @@ and the only file it writes is its own `config.json`.
 | Dead or Alive 2 Ultimate (Xbox) | the game folder (or its `DOA2` subfolder) with `datahdd2.afs` / `datadvd.afs` / `datahdd.afs` | adding the game folder also finds DOA1 Ultimate |
 | Dead or Alive 1 Ultimate (Xbox) | the DOA2U game folder, or its `DOA1/data` folder | |
 | Dead or Alive Xtreme Beach Volleyball (Xbox) | the disc image (`.iso`), or an extracted folder with `datadvd.afs` / `datahdd.afs` | read straight from the image, nothing to extract |
-| Dead or Alive Xtreme 2 (Xbox 360) | the extracted disc folder with `chr.afs`, `werone.afs`, ... and `default.xex` | assembles without extra data |
+| Dead or Alive Xtreme 2 (Xbox 360) | the disc image (`.iso`), or an extracted folder with `chr.afs`, `werone.afs`, ... and `default.xex` | read straight from the image; assembles without extra data |
 | Dead or Alive 4 (Xbox 360) | the disc image (`.iso`), or an extracted folder with `chrone.afs` / `chrtwo.afs` / `chrthree.afs` | read straight from the image; assembles without extra data |
 
 ### Optional: limb assembly data
