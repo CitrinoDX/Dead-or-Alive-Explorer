@@ -17,11 +17,11 @@ html,body{height:100%;margin:0}
 body{background:var(--bg);color:var(--text);font:13px/1.45 system-ui,Segoe UI,Roboto,sans-serif;display:grid;grid-template-columns:300px 1fr;overflow:hidden}
 #side{background:var(--panel);border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
 #side h1{font-size:14px;margin:0;padding:12px 14px 6px;letter-spacing:.02em}
-#games{display:flex;flex-wrap:wrap;gap:4px;padding:2px 12px 8px}
-#games button{flex:1 1 auto;background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:6px;padding:5px 8px;font:inherit;cursor:pointer;text-align:left;min-width:0}
-#games button small{display:block;color:var(--dim);font-size:10.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-#games button.sel{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 16%,var(--panel2))}
-#games button.err{opacity:.6;cursor:not-allowed}
+#games{padding:2px 12px 4px}
+#gamepick{width:100%;background:var(--panel2);backdrop-filter:none;padding:6px 8px;font-weight:600;cursor:pointer}
+#gamepick:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+#gameinfo{color:var(--dim);font-size:11px;padding:3px 2px 0}
+#gameinfo.err{color:var(--warn)}
 #folder{color:var(--dim);font-size:11px;padding:0 14px 6px;word-break:break-all}
 #search{margin:0 12px 8px;padding:7px 9px;border-radius:6px;border:1px solid var(--line);background:var(--panel2);color:var(--text);font:inherit}
 #tree{overflow:auto;flex:1;padding:0 6px 12px}
@@ -99,7 +99,10 @@ canvas{position:absolute;inset:0;width:100%;height:100%;display:block;outline:no
 <body>
 <aside id="side">
   <h1>Dead or Alive Explorer <button class="btn" id="setupbtn" title="Add or remove games and data folders">Setup</button></h1>
-  <div id="games"></div>
+  <div id="games">
+    <select id="gamepick" title="Choose game" aria-label="Choose game"></select>
+    <div id="gameinfo"></div>
+  </div>
   <div id="folder"></div>
   <input id="search" placeholder="Search character, costume, file…" autocomplete="off">
   <div id="tree"></div>
@@ -529,7 +532,7 @@ function step(d){
 async function selectGame(key, openId){
   const g=S.games.find(x=>x.key===key); if(!g||g.error) return;
   S.game=key; freeModel(); S.parts=[]; S.cur=null;
-  document.querySelectorAll("#games button").forEach(b=>b.classList.toggle("sel",b.dataset.key===key));
+  showGame(g);
   $("folder").textContent=g.folder; $("title").textContent="No model loaded"; $("info").textContent="";
   $("msg").textContent="Loading library…"; $("msg").style.display="grid"; $("texgrid").innerHTML=""; setView("3d");
   const lib=await (await fetch("/api/library/"+key)).json();
@@ -575,15 +578,23 @@ window.addEventListener("hashchange",()=>{
 });
 
 /* ---------------- games list + Setup ---------------- */
+function showGame(g){
+  const P=$("gamepick"), I=$("gameinfo");
+  P.value=g?g.key:""; P.title=g?g.folder:"Choose game";
+  I.textContent=!g?"":g.error?"could not open: "+g.error:g.platform+" · "+g.summary;
+  I.classList.toggle("err",!!(g&&g.error));
+}
+$("gamepick").onchange=e=>{ selectGame(e.target.value); e.target.blur(); };
 async function loadGames(){
   S.games=await (await fetch("/api/games")).json();
-  const G=$("games"); G.innerHTML="";
+  const P=$("gamepick"); P.innerHTML="";
   for(const g of S.games){
-    const b=document.createElement("button"); b.dataset.key=g.key;
-    b.innerHTML=esc(g.title)+"<small>"+esc(g.error?"could not open: "+g.error:(g.platform+" · "+g.summary))+"</small>";
-    if(g.error) b.className="err"; else b.onclick=()=>selectGame(g.key);
-    b.title=g.folder; G.appendChild(b);
+    const o=document.createElement("option"); o.value=g.key;
+    o.textContent=g.title+" ("+g.platform+")"+(g.error?" - could not open":"");
+    o.disabled=!!g.error; o.title=g.folder; P.appendChild(o);
   }
+  $("games").style.display=S.games.length?"":"none";
+  showGame(S.games.find(g=>g.key===S.game));
   if(!S.games.some(g=>!g.error)){
     S.game=null; freeModel(); S.parts=[]; S.cur=null; buildPartsUI();
     $("tree").innerHTML=""; $("folder").textContent=""; $("title").textContent="No model loaded"; $("info").textContent="";
