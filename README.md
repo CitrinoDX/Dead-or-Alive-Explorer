@@ -1,6 +1,6 @@
 # Dead or Alive Explorer
 
-A local viewer for the models and textures of the Xbox-era Dead or Alive games. A small Python server reads the game
+A local viewer for the models and textures of the Xbox and Xbox 360 Dead or Alive games. A small Python server reads the game
 archives directly (CRI AFS archives, Xbox disc images) and a WebGL2 page shows the assembled characters, stages and
 textures, with OBJ, GLB and PNG export.
 
@@ -20,6 +20,7 @@ and the only file it writes is its own `config.json`.
 | Dead or Alive 1 Ultimate (Xbox) | the DOA2U game folder, or its `DOA1/data` folder | |
 | Dead or Alive Xtreme Beach Volleyball (Xbox) | the disc image (`.iso`), or an extracted folder with `datadvd.afs` / `datahdd.afs` | read straight from the image, nothing to extract |
 | Dead or Alive Xtreme 2 (Xbox 360) | the extracted disc folder with `chr.afs`, `werone.afs`, ... and `default.xex` | assembles without extra data |
+| Dead or Alive 4 (Xbox 360) | the disc image (`.iso`), or an extracted folder with `chrone.afs` / `chrtwo.afs` / `chrthree.afs` | read straight from the image; assembles without extra data |
 
 ### Optional: limb assembly data
 DOA2U, DOA1U and DOAX store costumes as loose limbs. To assemble them, the viewer reads third-party data you may already
@@ -33,7 +34,7 @@ Without them every model still loads with its textures, but the limbs sit at the
 ### Command line (optional)
 ```
 python run_explorer.py "D:\Games\Dead or Alive 2 Ultimate"     # add any folder or disc image it recognises
-python run_explorer.py --doax2 DIR --greedxplorer DIR --skeletons DIR
+python run_explorer.py --doax2 DIR --doa4 ISO --greedxplorer DIR --skeletons DIR
 options: --port 8765  --no-browser  --forget KEY
 ```
 `names.json` (optional, next to `run_explorer.py`): `{"tra": "Trainer"}` display-name overrides for character codes.
@@ -54,6 +55,7 @@ options: --port 8765  --no-browser  --forget KEY
 | DOA1U | 135/135 load. Only gen00/jan00/jan01 have layouts and there are no `.cat` files, so the rest show unassembled. Stages are texture-only |
 | DOAX | 2593/2593 load. Bodies (`v<code>NN`) and ~2000 swimsuits/accessories (`md<item><wearer>`) placed from each `.cat` bone map + the wearer's skeleton. 19 items use a newer `.cat` variant and show unassembled |
 | DOAX2 | 1016/1016 load. Bodies, heads, swimsuits, items, boats, stages; placed from the file's own node tree |
+| DOA4 | 854/854 load and every texture on the disc decodes (19,952). 23 characters plus a cutscene cast (117 costumes, 25 heads, 17 colour variants listed with their base), 24 stages, effects, menus and 635 online-lobby avatar parts; placed from the file's own node tree. Head-swap characters get their `AA` head, the other hairstyles are toggles in the parts panel |
 
 ## Code layout
 - `run_explorer.py`: command line. `doaexplorer/server.py`: HTTP API (`/api/games`, `/api/setup`, `/api/library/<game>`,
@@ -64,7 +66,7 @@ options: --port 8765  --no-browser  --forget KEY
 - `doaexplorer/scene.py`: the common model every game produces (meshes, parts with 4x4 matrices, textures, orientation basis).
 - `doaexplorer/texture.py`: DXT1/3/5, BC5, Xbox swizzled/linear formats (incl. P8 + palette, V8U8), Xbox 360 tiling + byte swaps, PNG.
 - `doaexplorer/export.py`: OBJ zip, GLB, texture zip. `doaexplorer/afs.py`: AFS reader. `doaexplorer/vfs.py`: folder or Xbox disc image (XDVDFS).
-- `doaexplorer/games/`: `doa2u.py`, `doa1u.py`, `doax.py`, `doax2.py`, plus format modules `xbox_crypt.py`, `xpr_mdl.py`,
+- `doaexplorer/games/`: `doa2u.py`, `doa1u.py`, `doax.py`, `doax2.py`, `doa4.py`, plus format modules `xbox_crypt.py`, `xpr_mdl.py`,
   `gx_layout.py`, `cat_skel.py` (.cat bone map + skeleton placement), `tpr.py`.
   A new game is one module with `find_root`, `tree`, `load` and an entry in `games/__init__.py`.
 - `tools/`: standalone AFS survey/extract and memory-dump helper scripts.
@@ -94,6 +96,22 @@ Verified unless marked otherwise.
 - XPR2/TPR (360, big-endian): USER chunks (header, MdlGeo, MdlInfo, Hie), TX2D/VBUF/IBUF into the data block. Chunk tables:
   count at +0x14, offsets at +0x20. Vertex decls are D3DDECLTYPE layers (FLOAT3, HEND3N, FLOAT16_2, ...). Strips use 0xFFFF
   restarts. Hie nodes are row-vector 4x4 matrices with parent node indices. DOAX2 bodies have no head: heads and hair are the `AA/AB...` files.
+  Texture headers are 0x34 bytes in DOAX2 and 0x28 in DOA4; both end with the 6-dword GPU fetch constant, so it is read
+  from the end. DOA4 also uses format 0x0A (8_8, stage water-ripple frames).
+- DOA4 character files hold the model three times: full detail, a low-detail copy, and an untextured shadow copy built from
+  the low one (its objects have the low copy's exact bounds). The viewer pairs each shadow object with the same-bounds
+  textured object closest in vertex count; the hierarchy root those partners belong to is the low-detail set. Both start
+  hidden, as do "extras": single quads (shadow planes) and props reaching 0.5 past the body (Zack's rope runs 500 units out).
+- DOA4 head swaps: characters whose shadow copy has 14 objects instead of 15 (Kasumi, Helena, Lei Fang, Ayane, Kokoro,
+  Hitomi, Ein, Jann Lee, Eliot, La Mariposa, Christie) stop at the neck; `<code>AA/BA/...` are faces and hair. Each head
+  file is stored relative to a different body node (hips, chest or neck), so it is placed by the eyes both files carry:
+  meshes under the face that match a body mesh, most common offset (hair ornaments some bodies share hang off other roots
+  and would mislead). Helena's eyes differ; there the head file's low-detail head, which is stored in body space, gives
+  the offset, and it puts her eyes exactly on her body's eye nodes. Some alternate hairstyles mix conventions per piece,
+  so they take the candidate offset that puts their face where the `AA` face went. All 25 heads land at head height
+  (y 0.55-0.63) on every body of their character.
+- DOA4 colour variants (Lei Fang `CA`-`CG`, Kokoro `AA`-`AG`, ...) store the same `.tpr` again next to a different `.cat`;
+  the `.cat` differences are material colour floats (tints). Listed once, with the variant names in the note.
 - Orientation: basis diag(-1,1,-1), camera yaw = pi; matches GreedXplorer's view. Exports use the same transform.
   Front faces are **counter-clockwise**: the winding agrees with the stored vertex normals on 99.5-100% of triangles in
   DOA2U, DOAX and DOAX2. Treating them as clockwise hides the outside of single-sided materials and flips the lighting.
@@ -118,6 +136,10 @@ Verified unless marked otherwise.
 - DOAX: no "wear swimsuit on body" combination yet (each file is shown on its own); stages show at their stored origins.
 - DOAX2: LOD/shadow meshes are not separated (the `.cat` "long way" isn't decoded); no skinning or morphs; small textures that
   live in a packed mip tail may decode wrong.
+- DOA4: `.cat` material tints are not applied, so colour variants look like their base and tinted hair shows untinted
+  (Kokoro's hair renders white). Which head goes with which costume in-game isn't known; `AA` is always the default.
+  Stages show the first colour map of each material (no lightmaps), and some frame wide because of distant scenery
+  cards. No skinning or animation.
 - DOA2U: env-map layers are still guesses; `.mot` animations not parsed.
 - Unnamed codes: DOA1U `tra`; DOAX `vun`. Use names.json.
 

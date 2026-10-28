@@ -82,9 +82,10 @@ def parse_tpr(d):
         elif typ == b"IBUF":
             ibufs.append(data0 + (struct.unpack_from(">I", d, off + sz - 8)[0] & ~0xF))
         elif typ in (b"TX2D", b"TX3D", b"TXCM"):
-            texents.append((typ, off, name))
-    for i, (typ, off, name) in enumerate(texents):
-        fd0, fd1, fd2 = struct.unpack_from(">3I", d, off + 0x1C)
+            texents.append((typ, off, sz, name))
+    for i, (typ, off, sz, name) in enumerate(texents):
+        # the 6-dword GPU fetch constant ends the header (0x34 bytes in DOAX2, 0x28 in DOA4)
+        fd0, fd1, fd2 = struct.unpack_from(">3I", d, off + sz - 0x18)
         if typ == b"TX3D":
             w, h = 1 + (fd2 & 0x7FF), 1 + ((fd2 >> 11) & 0x7FF)
         else:
@@ -186,14 +187,82 @@ def global_matrices(t):
     return out
 
 
-def to_scene(sid, raw, title=None):
+def detail_groups(t, meshes, mats, tol=0.01):
+    """object index -> 'Model' / 'Low detail' / 'Shadow' / 'Extras'. DOA4 files carry the whole model again at low
+    detail plus an untextured shadow copy made from it. Shadow objects pair with the textured object that has the same
+    bounds and the closest vertex count; a hierarchy root whose objects are mostly such partners is the low-detail set.
+    Extras: single quads (shadow / reflection planes) and, in body files, props reaching well past the body (Zack's
+    rope runs 500 units out). Files without a shadow copy come back as a single 'All' group."""
+    nt = len(t.textures)
+    live = [o for o, g in enumerate(meshes) if g is not None]
+    shadow = {o for o in live if not any(gi < nt for m in t.objs[o]["materials"] for _, _, gi in m["textures"])}
+    if not shadow:
+        return {o: "All" for o in live}
+    box = {o: (meshes[o]["pos"].min(0), meshes[o]["pos"].max(0)) for o in live}
+    partner = set()
+    for so in shadow:
+        lo, hi = box[so]
+        same = [o for o in live if o not in shadow and np.abs(box[o][0] - lo).max() < tol and np.abs(box[o][1] - hi).max() < tol]
+        if same:
+            ns = len(meshes[so]["pos"])
+            partner.add(min(same, key=lambda o: abs(np.log(len(meshes[o]["pos"]) / ns))))
+    node_of = {n["idx"]: i for i, n in enumerate(t.nodes)}
+
+    def root(o):
+        i = node_of.get(o)
+        if i is None:
+            return ("obj", o)
+        for _ in range(128):
+            p = t.nodes[i]["parent"]
+            if p == 0xFFFF or p >= len(t.nodes):
+                break
+            i = p
+        return t.nodes[i]["idx"]
+    by_root = {}
+    for o in live:
+        by_root.setdefault(root(o), []).append(o)
+    out = {}
+    for objs in by_root.values():
+        tex = [o for o in objs if o not in shadow]
+        hits = sum(o in partner for o in tex)
+        low = tex and hits >= (0.5 * len(tex) if len(tex) >= 3 else len(tex))
+        for o in objs:
+            out[o] = "Shadow" if o in shadow else "Low detail" if low else "Model"
+
+    def world_box(o):
+        m = np.asarray(mats.get(o, np.eye(4)))
+        p = meshes[o]["pos"] @ m[:3, :3].T + m[:3, 3]
+        return p.min(0), p.max(0)
+    low = [o for o in live if out[o] == "Low detail"]
+    body_lo = body_hi = None
+    if len(low) >= 8:   # a whole low-detail body, not just a low-detail head
+        boxes = [world_box(o) for o in low]
+        body_lo, body_hi = np.min([b[0] for b in boxes], 0) - 0.5, np.max([b[1] for b in boxes], 0) + 0.5
+    for o in live:
+        if out[o] != "Model":
+            continue
+        if len(meshes[o]["pos"]) <= 4:
+            out[o] = "Extras"
+        elif body_lo is not None:
+            lo, hi = world_box(o)
+            if (lo < body_lo).any() or (hi > body_hi).any():
+                out[o] = "Extras"
+    return out
+
+
+def to_scene(sid, raw, title=None, character=False):
+    """character: sort a DOA4 character file into model / low detail / shadow / extras (see detail_groups)"""
     t = parse_tpr(raw)
     sc = Scene(sid, title)
     sc.meshes = [obj_geometry(t, ob, len(t.textures)) for ob in t.objs]
     mats = global_matrices(t)
+    if character:
+        groups = detail_groups(t, sc.meshes, mats)
+    else:
+        groups = {i: "All" for i, g in enumerate(sc.meshes) if g is not None}
     for i, g in enumerate(sc.meshes):
         if g is not None:
-            sc.add_part(g["name"], i, mats.get(i))
+            sc.add_part(g["name"], i, mats.get(i), group=groups[i], visible=groups[i] in ("Model", "All"))
     for tx in t.textures:
         sc.add_texture(tx["w"], tx["h"], texture.x360_format_name(tx["fmt"]) + ("" if tx["kind"] == "TX2D" else " " + tx["kind"]),
                        (lambda tx=tx: texture.decode_x360(t.data, tx["offset"], tx["fmt"], tx["endian"], tx["w"], tx["h"], tx["tiled"])),

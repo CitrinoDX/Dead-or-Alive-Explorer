@@ -63,6 +63,19 @@ class Scene:
         self.parts.append(dict(name=name, group=group, mesh=mesh, m=np.eye(4) if m is None else np.asarray(m, float),
                                visible=visible))
 
+    def merge(self, other, prefix, place):
+        """Append another scene's textures, meshes and parts (names prefixed). place(part) -> (group, visible, matrix)."""
+        toff, moff = len(self.textures), len(self.meshes)
+        for k, t in enumerate(other.textures):
+            self.add_texture(t["w"], t["h"], t["fmt"], other._decoders[k], name=prefix + t["name"])
+        for g in other.meshes:
+            if g is not None:
+                g = dict(g, subs=[dict(s, tex=s["tex"] + toff if s["tex"] >= 0 else s["tex"]) for s in g["subs"]])
+            self.meshes.append(g)
+        for p in other.parts:
+            group, visible, m = place(p)
+            self.add_part(prefix + p["name"], moff + p["mesh"], m, group, visible)
+
     def default_parts(self, group="All"):
         """One part per non-empty mesh at its stored origin."""
         for i, g in enumerate(self.meshes):

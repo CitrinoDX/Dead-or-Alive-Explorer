@@ -206,7 +206,7 @@ def decode_xbox(data, offset, fmt, w, h, pitch=None, palette=None):
 
 # ----------------------------------------------------------------- Xbox 360 (Xenos)
 X360_FORMATS = {  # GPUTEXTUREFORMAT -> (name, bytes per block, block dim)
-    0x02: ("L8", 1, 1), 0x06: ("A8R8G8B8", 4, 1), 0x12: ("DXT1", 8, 4), 0x13: ("DXT3", 16, 4),
+    0x02: ("L8", 1, 1), 0x06: ("A8R8G8B8", 4, 1), 0x0A: ("8_8", 2, 1), 0x12: ("DXT1", 8, 4), 0x13: ("DXT3", 16, 4),
     0x14: ("DXT5", 16, 4), 0x31: ("BC5", 16, 4), 0x3B: ("BC4", 8, 4),
 }
 
@@ -261,6 +261,11 @@ def decode_x360(data, offset, fmt, endian, w, h, tiled=True):
     if name == "L8":
         out = np.repeat(blocks.reshape(bh, bw, 1), 4, 2).copy()
         out[:, :, 3] = 255
+        return out[:h, :w]
+    if name == "8_8":   # two-channel maps (DOA4 water ripple frames): shown as red/green
+        px = blocks.reshape(bh, bw, 2)
+        out = np.zeros((bh, bw, 4), np.uint8)
+        out[:, :, :2], out[:, :, 3] = px, 255
         return out[:h, :w]
     px = blocks.reshape(bh, bw, 4)  # little-endian ARGB dword after the swap: B G R A
     return px[:h, :w][:, :, [2, 1, 0, 3]].copy()
