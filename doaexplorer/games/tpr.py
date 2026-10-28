@@ -115,7 +115,10 @@ def _parse_obj(d, ob, oi, vbufs, ibufs):
             vbi, stride = struct.unpack_from(">2I", d, sd + size)
             obj["decls"].append(dict(ibuf=ibi, nidx=nidx, nverts=nverts, vbuf=vbi, stride=stride, layers=layers))
     for mb in _table(d, ob):
-        mi, transp, decl, _, istart, icount, ntex, toff = struct.unpack_from(">8I", d, mb)
+        mi, _, decl, _, istart, icount, ntex, toff = struct.unpack_from(">8I", d, mb)
+        # alpha blending on: set on every material whose texture has alpha (DOA4 characters 1124/1124, DOAX2 699/699);
+        # the dword at +0x04 read before only ever appears on opaque textures
+        transp = struct.unpack_from(">I", d, mb + 0x50)[0]
         cols = [struct.unpack_from(">4f", d, mb + 0x80 + 16 * i) for i in range(4)]   # ambient, diffuse, specular, emissive
         texs = [struct.unpack_from(">3I", d, mb + toff + 0x40 * k) for k in range(min(ntex, 16))]  # uv set, map type, texture
         obj["materials"].append(dict(index=mi, transparent=bool(transp), decl=decl, istart=istart, icount=icount,

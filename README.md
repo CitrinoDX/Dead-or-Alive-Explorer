@@ -105,6 +105,8 @@ Verified unless marked otherwise.
   restarts. Hie nodes are row-vector 4x4 matrices with parent node indices. DOAX2 bodies have no head: heads and hair are the `AA/AB...` files.
   Texture headers are 0x34 bytes in DOAX2 and 0x28 in DOA4; both end with the 6-dword GPU fetch constant, so it is read
   from the end. DOA4 also uses format 0x0A (8_8, stage water-ripple frames).
+  Material alpha blending is the dword at +0x50: it is set on every material whose texture has alpha (DOA4 characters
+  1124/1124, DOAX2 699/699). The dword at +0x04 only ever appears on opaque textures and is not the transparency flag.
 - DOA4 character files hold the model three times: full detail, a low-detail copy, and an untextured shadow copy built from
   the low one (its objects have the low copy's exact bounds). The viewer pairs each shadow object with the same-bounds
   textured object closest in vertex count; the hierarchy root those partners belong to is the low-detail set. Both start
