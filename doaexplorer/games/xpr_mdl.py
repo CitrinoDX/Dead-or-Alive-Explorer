@@ -141,11 +141,12 @@ def _parse_mdl(x, d, u):
             x.objs.append(ob)
             continue
         q = o + 0x60 + 0x40
-        while q + 16 <= len(d):
-            mid = u(q)
-            if mid not in (0x80000000, 0x80000001):
+        while q + 0x80 <= end:
+            # marker 0x8000000n or 0x90000000 (bit 0: alpha blend; 2/3/5/7 also occur, e.g. aya18's helmet visor),
+            # size 0x80 + 16 per texture; the zero padding after the last material ends the list
+            mid, ms = u(q), u(q + 4)
+            if not mid & 0x80000000 or mid & 0x0FFFFFF0 or ms != 0x80 + 16 * u(q + 0x64) or q + ms > end:
                 break
-            ms = u(q + 4)
             mt = Material()
             mt.matid = mid
             mt.transparent = bool(mid & 1)
