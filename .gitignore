@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+# per-machine settings written by run_explorer.py
+config.json
+names.json
+# local tooling (contains machine paths)
+.claude/
