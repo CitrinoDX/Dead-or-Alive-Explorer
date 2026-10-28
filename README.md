@@ -59,7 +59,7 @@ options: --port 8765  --no-browser  --forget KEY  --version
 | DOA2U | 418/418 entries load. Costumes assemble with GreedXplorer layouts (258 exact); the 25 `A#` costumes are DOA3 models and use GreedXplorer's DOA3 layouts, matched by mesh and texture count |
 | DOA1U | 135/135 load. Only gen00/jan00/jan01 have layouts and there are no `.cat` files, so the rest show unassembled. Stages are texture-only |
 | DOAX | 2593/2593 load. Bodies (`v<code>NN`) and ~2000 swimsuits/accessories (`md<item><wearer>`) placed from each `.cat` bone map + the wearer's skeleton. 19 items use a newer `.cat` variant and show unassembled |
-| DOAX2 | 1016/1016 load. Bodies, heads, swimsuits, items, boats, stages; placed from the file's own node tree. Swimsuits show the owner's fit; the fits for the other body types are toggles in the parts panel |
+| DOAX2 | 1016/1016 load. Bodies, heads, swimsuits, items, boats, stages; placed from the file's own node tree. Swimsuits are listed by their shop names and show the owner's fit; the fits for the other body types are toggles in the parts panel |
 | DOA4 | 854/854 load and every texture on the disc decodes (19,952). 23 characters plus a cutscene cast (117 costumes, 25 heads, 17 colour variants listed with their base), 24 stages, effects, menus and 635 online-lobby avatar parts; placed from the file's own node tree. Head-swap characters get their `AA` head, the other hairstyles are toggles in the parts panel |
 
 ## Versions
@@ -125,7 +125,10 @@ Verified unless marked otherwise.
   14 gifts from Zack, the only character-specific swimsuits (every `cs_` file plus Kasumi's three `vks_hn_i`), and 35
   per-body-type files of Leifang's five qipao (`vks_on_p`, `vle_on_i`, `vhe_on_r`, `vtn_on_s`, `vcr_on_u`) and Kasumi's two
   sailor fuku (`vks_sk_f`, `vht_sk_k`, `vhe_sk_i`, `vtn_sk_j`, `vcr_sk_l`), whose prefix names the body type, not the
-  owner. Those 21 swimsuits are listed by their shop names; the file name stays in the info line. Same-name repeats are design
+  owner. All 308 shop swimsuits (the wiki's nine lists) are named in the viewer, matched by texture; the file name stays
+  in the info line. Some sets sit under another girl's prefix: Lisa's butterfly bikinis (`vay_dl_i`) and Venus
+  (`vcr_vs_b`), Tina's G-string bikinis (`vco_dl_g`), Christie's bunny suits (`vtn_on_m`). Kokoro's three crop tops
+  (`vco_sh_e`) are stored twice, the second copy with a see-through shirt. Same-name repeats are design
   variants (textures always differ, geometry usually). Loose objects outside the trees: a fit's objects form one run of
   object indices, and its loose pieces (rigid cups and bows) sit at the same offset in or just before every run; a loose
   tree split off a fit (Tina's bottom in `vht_ch_a`) keeps its other nodes inside that fit's run. Pieces stored once (bead
