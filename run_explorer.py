@@ -13,7 +13,7 @@ import argparse, os, sys, threading, webbrowser
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from doaexplorer import server, config
+from doaexplorer import server, config, __version__
 from doaexplorer.games import GAMES
 
 
@@ -27,7 +27,9 @@ def main():
     ap.add_argument("--port", type=int, default=8765)
     ap.add_argument("--no-browser", action="store_true")
     ap.add_argument("--forget", metavar="KEY", action="append", default=[], help="drop a remembered game or data folder")
+    ap.add_argument("--version", action="version", version="Dead or Alive Explorer " + __version__)
     a = ap.parse_args()
+    print("Dead or Alive Explorer", __version__)
 
     cfg = config.load()
     for k in a.forget:

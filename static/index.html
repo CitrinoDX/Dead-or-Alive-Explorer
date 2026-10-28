@@ -142,7 +142,7 @@ canvas{position:absolute;inset:0;width:100%;height:100%;display:block;outline:no
 </main>
 <div id="setup" role="dialog" aria-label="Setup">
   <div class="sbox">
-    <div class="shead"><h2>Setup</h2><button class="btn" id="setupclose">Close (Esc)</button></div>
+    <div class="shead"><h2>Setup <span class="dim" id="sversion"></span></h2><button class="btn" id="setupclose">Close (Esc)</button></div>
     <p class="dim">This viewer doesn't include any game data. Point it at your own copies of the games. They're only ever read, never changed.</p>
     <h3>Games</h3>
     <div id="sgames"></div>
@@ -609,6 +609,7 @@ async function openSetup(){
 function closeSetup(){ $("setup").classList.remove("show"); }
 function renderSetup(st){
   S.setup=st;
+  $("sversion").textContent=st.version?"· Dead or Alive Explorer "+st.version:"";
   const G=$("sgames"); G.innerHTML="";
   if(!st.games.length) G.innerHTML='<p class="dim">No games added yet.</p>';
   for(const g of st.games){

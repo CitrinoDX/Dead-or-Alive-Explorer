@@ -35,7 +35,7 @@ Without them every model still loads with its textures, but the limbs sit at the
 ```
 python run_explorer.py "D:\Games\Dead or Alive 2 Ultimate"     # add any folder or disc image it recognises
 python run_explorer.py --doax2 DIR --doa4 ISO --greedxplorer DIR --skeletons DIR
-options: --port 8765  --no-browser  --forget KEY
+options: --port 8765  --no-browser  --forget KEY  --version
 ```
 `names.json` (optional, next to `run_explorer.py`): `{"tra": "Trainer"}` display-name overrides for character codes.
 
@@ -56,6 +56,13 @@ options: --port 8765  --no-browser  --forget KEY
 | DOAX | 2593/2593 load. Bodies (`v<code>NN`) and ~2000 swimsuits/accessories (`md<item><wearer>`) placed from each `.cat` bone map + the wearer's skeleton. 19 items use a newer `.cat` variant and show unassembled |
 | DOAX2 | 1016/1016 load. Bodies, heads, swimsuits, items, boats, stages; placed from the file's own node tree |
 | DOA4 | 854/854 load and every texture on the disc decodes (19,952). 23 characters plus a cutscene cast (117 costumes, 25 heads, 17 colour variants listed with their base), 24 stages, effects, menus and 635 online-lobby avatar parts; placed from the file's own node tree. Head-swap characters get their `AA` head, the other hairstyles are toggles in the parts panel |
+
+## Versions
+Numbered MAJOR.MINOR.PATCH; 0.x while it is a work in progress. The version shows in the Setup panel, at startup and
+with `--version`.
+- **0.2.0**: Dead or Alive 4 (Xbox 360), read straight from the disc image. Low-detail, shadow and prop objects start
+  hidden; head-swap characters get their head attached, with alternate hairstyles in the parts panel.
+- **0.1.0**: first public release. DOA2U, DOA1U, DOAX and DOAX2; Setup panel; OBJ/GLB/PNG export.
 
 ## Code layout
 - `run_explorer.py`: command line. `doaexplorer/server.py`: HTTP API (`/api/games`, `/api/setup`, `/api/library/<game>`,

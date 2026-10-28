@@ -5,7 +5,7 @@ import json, os, threading, traceback
 from collections import OrderedDict
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs, unquote
-from . import export, config
+from . import export, config, __version__
 from .games import GAMES, BY_KEY
 from .sources import Sources, find_greedxplorer, find_skeletons
 
@@ -142,7 +142,7 @@ class App:
         return out
 
     def setup_json(self):
-        return dict(games=self.games_json(), data=self.sources.summary(), dialogs=HAVE_DIALOGS,
+        return dict(version=__version__, games=self.games_json(), data=self.sources.summary(), dialogs=HAVE_DIALOGS,
                     supported=[dict(key=c.key, title=c.title, platform=c.platform, hint=c.hint) for c in GAMES])
 
 
