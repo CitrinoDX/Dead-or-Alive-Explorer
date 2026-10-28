@@ -2,8 +2,9 @@
 straight from the disc image or an extracted folder.
 The nine girls share five skeletons (Kasumi and Ayane; Helena and Lisa; Hitomi, Kokoro and Lei Fang; Christie; Tina),
 and so do their bodies apart from the neck. Swimsuits <owner>_<type>_<letter>_m carry the outfit once per body type, a
-separate node tree each; the 'cs' outfits and a few exclusives carry only the owner's fit. Each tree is matched to the
-body type whose joints it repeats, and only the owner's fit is shown.
+separate node tree each; the 14 gifts from Zack carry only the owner's fit, and Leifang's qipao and Kasumi's sailor fuku
+come as one file per body type. Each tree is matched to the body type whose joints it repeats, and only the owner's fit
+is shown. Swimsuits are listed by their shop name where SWIMSUITS knows it, else by file name.
 Some pieces of each fit are loose objects outside its tree (rigid cups and bows): a fit's objects form one run of
 object indices, and its loose pieces sit at the same place in or just before every run. A loose tree split off a fit
 (Tina's bottom in vht_ch_a) keeps its other nodes inside that fit's run. Pieces stored once (bead rows, tassel chains,
@@ -24,6 +25,19 @@ ARCHIVES = (("chr", "Bodies"), ("werone", "Swimsuits"), ("wertwo", "Swimsuits"),
             ("boat", "Boats"), ("stg", "Stages"), ("avt", "Avatar"))
 # a fitted copy repeats its body type's joints exactly (0.0000); the nearest other body type is 7 mm off
 FIT_TOL = 0.002
+# swimsuit file name -> shop names of its repeats in archive order. The qipao and sailor fuku files are one per body type,
+# named after a girl of that type, and all carry the same names.
+QIPAO = ["Ostrich", "Grebe", "Thunderbird", "Ptarmigan", "Thrush"]
+SAILOR = ["Dandelion", "Cherry Blossom"]
+SWIMSUITS = {
+    # gifts from Zack, the only character-specific swimsuits
+    "vay_cs_b_m": ["Raccoon"], "vco_cs_i_m": ["Shiba"], "vco_cs_j_m": ["Citron", "Cassis"], "vcr_cs_g_m": ["Panther"],
+    "vhe_cs_d_m": ["White Cat"], "vht_cs_f_m": ["Bear"], "vks_cs_a_m": ["Rabbit"],
+    "vks_hn_i_m": ["Gentian", "Azalea", "Thistle"], "vle_cs_c_m": ["Panda"], "vls_cs_h_m": ["Leopard"],
+    "vtn_cs_e_m": ["Black Cat"],
+    **dict.fromkeys(("vks_on_p_m", "vle_on_i_m", "vhe_on_r_m", "vtn_on_s_m", "vcr_on_u_m"), QIPAO),
+    **dict.fromkeys(("vks_sk_f_m", "vht_sk_k_m", "vhe_sk_i_m", "vtn_sk_j_m", "vcr_sk_l_m"), SAILOR),
+}
 
 
 def hierarchies(t):
@@ -75,6 +89,7 @@ class DOAX2(Game):
         self.src = vfs.open_source(folder)
         self.afs = {a: Afs(a + ".afs", self.src.open(a + ".afs")) for a, _ in ARCHIVES if self.src.exists(a + ".afs")}
         self.entries = {}
+        repeat = collections.Counter()
         for arch, section in ARCHIVES:
             afs = self.afs.get(arch)
             if not afs:
@@ -89,6 +104,10 @@ class DOAX2(Game):
                 label = stem[4:] if char and stem[3:4] == "_" else stem
                 if arch == "chr" and char:
                     label = "body " + stem[3:]
+                shop = SWIMSUITS.get(stem, ())
+                if repeat[stem] < len(shop):
+                    label = shop[repeat[stem]]
+                repeat[stem] += 1
                 self.entries["%s:%d" % (arch, i)] = dict(archive=arch, index=i, char=char, section=section,
                                                          label=label, name=nm, size=afs.size(i))
         self._tree = None

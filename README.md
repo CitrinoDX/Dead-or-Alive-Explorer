@@ -121,8 +121,11 @@ Verified unless marked otherwise.
 - DOAX2 body types: the nine girls share five skeletons (joint positions identical to 0.0000): Kasumi + Ayane, Helena +
   Lisa, Hitomi + Kokoro + Lei Fang, Christie, Tina. Bodies of the same type differ only in the neck piece. Swimsuits
   (`<owner>_<type>_<letter>_m` in werone/wertwo) hold the outfit once per body type, each a separate 37-node tree that
-  repeats that type's joints exactly (290 of 340 files; the nearest other type is 7 mm off). The 49 `cs_` outfits and
-  exclusives (`vks_on_p`, `vtn_on_s`, the paired `*_sk_*`, ...) hold the owner's fit only. Same-name repeats are design
+  repeats that type's joints exactly (290 of 340 files; the nearest other type is 7 mm off). 49 files hold one fit: the
+  14 gifts from Zack, the only character-specific swimsuits (every `cs_` file plus Kasumi's three `vks_hn_i`), and 35
+  per-body-type files of Leifang's five qipao (`vks_on_p`, `vle_on_i`, `vhe_on_r`, `vtn_on_s`, `vcr_on_u`) and Kasumi's two
+  sailor fuku (`vks_sk_f`, `vht_sk_k`, `vhe_sk_i`, `vtn_sk_j`, `vcr_sk_l`), whose prefix names the body type, not the
+  owner. Those 21 swimsuits are listed by their shop names; the file name stays in the info line. Same-name repeats are design
   variants (textures always differ, geometry usually). Loose objects outside the trees: a fit's objects form one run of
   object indices, and its loose pieces (rigid cups and bows) sit at the same offset in or just before every run; a loose
   tree split off a fit (Tina's bottom in `vht_ch_a`) keeps its other nodes inside that fit's run. Pieces stored once (bead
