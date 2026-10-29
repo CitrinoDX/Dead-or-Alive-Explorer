@@ -24,6 +24,7 @@ def main():
         ap.add_argument("--" + g.key, metavar="DIR", help="%s (%s): %s" % (g.title, g.platform, g.hint))
     ap.add_argument("--greedxplorer", metavar="DIR", help="your GreedXplorer folder (optional limb layouts)")
     ap.add_argument("--skeletons", metavar="DIR", help="the Team Ninja importer's skeletons folder (optional)")
+    ap.add_argument("--maxscripts", metavar="DIR", help="the DOA2U 3ds Max layout scripts folder (optional)")
     ap.add_argument("--port", type=int, default=8765)
     ap.add_argument("--no-browser", action="store_true")
     ap.add_argument("--forget", metavar="KEY", action="append", default=[], help="drop a remembered game or data folder")
@@ -43,7 +44,7 @@ def main():
                 cfg["games"][g.key] = r
             else:
                 print("! %s: no %s data found in %s" % (g.key, g.title, v))
-    for k in ("greedxplorer", "skeletons"):
+    for k in server.DATA_KEYS:
         if getattr(a, k):
             cfg["data"][k] = os.path.abspath(getattr(a, k))
     config.save(cfg)

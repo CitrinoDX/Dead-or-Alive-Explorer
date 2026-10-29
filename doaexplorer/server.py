@@ -7,7 +7,9 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs, unquote
 from . import export, config, __version__
 from .games import GAMES, BY_KEY, ORDER, PLANNED
-from .sources import Sources, find_greedxplorer, find_skeletons
+from .sources import Sources, find_greedxplorer, find_skeletons, find_maxscripts
+
+DATA_KEYS = ("greedxplorer", "skeletons", "maxscripts")
 
 STATIC = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "static"))
 CACHE_SIZE = 8
@@ -49,7 +51,7 @@ class App:
         self.loading = {}
         self.games = {}               # key -> Game
         self.errors = {}              # key -> (folder, message) for configured games that failed to open
-        self.sources = Sources(cfg["data"].get("greedxplorer"), cfg["data"].get("skeletons"))
+        self.sources = Sources(*(cfg["data"].get(k) for k in DATA_KEYS))
         for cls in GAMES:
             folder = cfg["games"].get(cls.key)
             if folder:
@@ -65,7 +67,7 @@ class App:
             self.errors[cls.key] = (folder, "%s: %s" % (type(e).__name__, e))
 
     def _reload_sources(self):
-        self.sources = Sources(self.cfg["data"].get("greedxplorer"), self.cfg["data"].get("skeletons"))
+        self.sources = Sources(*(self.cfg["data"].get(k) for k in DATA_KEYS))
         for g in self.games.values():
             g.set_sources(self.sources)
 
@@ -87,14 +89,17 @@ class App:
                     self._open(cls, root)
                     msg = "%s (%s)" % (cls.title, cls.platform)
                     found.append(msg + (" - could not open: " + self.errors[cls.key][1] if cls.key in self.errors else ""))
-            gx, sk = find_greedxplorer(path), find_skeletons(path)
+            gx, sk, ms = find_greedxplorer(path), find_skeletons(path), find_maxscripts(path)
             if gx:
                 self.cfg["data"]["greedxplorer"] = gx
                 found.append("GreedXplorer layouts")
             if sk:
                 self.cfg["data"]["skeletons"] = sk
                 found.append("Team Ninja importer skeletons")
-            if gx or sk:
+            if ms:
+                self.cfg["data"]["maxscripts"] = ms
+                found.append("DOA2U 3ds Max layout scripts")
+            if gx or sk or ms:
                 self._reload_sources()
             if found:
                 self._changed()
@@ -106,7 +111,7 @@ class App:
                 self.cfg["games"].pop(key, None)
                 self.games.pop(key, None)
                 self.errors.pop(key, None)
-            elif kind == "data" and key in ("greedxplorer", "skeletons"):
+            elif kind == "data" and key in DATA_KEYS:
                 self.cfg["data"].pop(key, None)
                 self._reload_sources()
             self._changed()

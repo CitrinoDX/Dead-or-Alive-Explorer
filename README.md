@@ -25,11 +25,14 @@ and the only file it writes is its own `config.json`.
 
 ### Optional: limb assembly data
 DOA2U, DOA1U, DOA3 and DOAX store costumes as loose limbs. To assemble them, the viewer reads third-party data you may
-already have; it is not included in this project. Add either folder in Setup:
+already have; it is not included in this project. Add any of these folders in Setup:
 - your **GreedXplorer** folder (its `doau2data`, `doau1data`, `doa3data`, `doaxdata` layout folders): DOA2U, DOA1U, DOA3 and
   the DOA3-era DOA2U costumes;
 - the **Team Ninja Blender importer** (2013) folder or its `skeletons` subfolder: DOAX bodies and swimsuits, and the
-  skeleton view for DOA2U and DOA3.
+  skeleton view for DOA2U and DOA3;
+- the **3ds Max layout scripts** made for the DOAU Exporter's `.3ds` files (`aya00.3ds.ms`, ... in per-character folders,
+  e.g. a `DOAU ms files` folder): a few DOA2U pieces GreedXplorer leaves out or misplaces (Tengu's wings, Ryu's ponytail,
+  ...). Optional on top of GreedXplorer.
 
 Without them every model still loads with its textures, but the limbs sit at their stored origins.
 
@@ -63,7 +66,7 @@ options: --port 8765  --no-browser  --forget KEY  --version
 ## Status
 | Game | Status |
 |---|---|
-| DOA2U | 418/418 entries load. Costumes assemble with GreedXplorer layouts (258 exact); the 25 `A#` costumes are DOA3 models and use GreedXplorer's DOA3 layouts, matched by mesh and texture count |
+| DOA2U | 418/418 entries load. Costumes assemble with GreedXplorer layouts (258 exact); the 25 `A#` costumes are DOA3 models and use GreedXplorer's DOA3 layouts, matched by mesh and texture count. With the 3ds Max layout scripts, 16 costumes get pieces GreedXplorer leaves out or misplaces |
 | DOA1U | 135/135 load. Only gen00/jan00/jan01 have layouts and there are no `.cat` files, so the rest show unassembled. Stages are texture-only |
 | DOA3 | 174/174 load: 69 costumes of 19 characters (Leon's three unused costumes and Omega included), 27 stages, effects and 77 menu sprite bundles. Costumes assemble with GreedXplorer's DOA3 layouts (65 by name, 4 by mesh and texture count) and get the importer's `.doa3` skeleton. Stages are in world space; sky domes and distant backdrops start hidden so the view frames the arena |
 | DOAX | 2593/2593 load. Bodies (`v<code>NN`) and ~2000 swimsuits/accessories (`md<item><wearer>`) placed from each `.cat` bone map + the wearer's skeleton. 19 items use a newer `.cat` variant and show unassembled |
@@ -86,8 +89,8 @@ with `--version`.
 - `run_explorer.py`: command line. `doaexplorer/server.py`: HTTP API (`/api/games`, `/api/setup`, `/api/library/<game>`,
   `/api/model/<game>/<id>`, `/api/tex/<game>/<id>/<n>.png[?opaque=1]`, `/api/textures/<game>/<id>.zip`,
   `/api/export/<game>/<id>.obj.zip|.glb|.fbx?parts=`) plus the Setup endpoints, which only answer pages served from this machine.
-- `doaexplorer/config.py`: `config.json` (per machine, not committed). `doaexplorer/sources.py`: the optional GreedXplorer and
-  skeleton folders.
+- `doaexplorer/config.py`: `config.json` (per machine, not committed). `doaexplorer/sources.py`: the optional GreedXplorer,
+  skeleton and 3ds Max script folders.
 - `doaexplorer/scene.py`: the common model every game produces (meshes, parts with 4x4 matrices, textures, bones for the
   skeleton view, orientation basis).
 - `doaexplorer/texture.py`: DXT1/3/5, BC5, Xbox swizzled/linear formats (incl. P8 + palette, V8U8), Xbox 360 tiling + byte swaps, PNG.
@@ -131,6 +134,25 @@ Verified unless marked otherwise.
   The index buffer is one stitched strip, so a strip covers `indices[start : start+n+4]`.
 - GX layouts: limbs are stored around their own pivots; `tx/ty/tz` place them, and mirror meshes go at -tx **with mirrored
   rotation (rx, -ry, -rz)**, which fixes the missing left forearm on DOA1U. DOA2U layouts never rotate mirrored parts.
+- DOA2U 3ds Max layout scripts: one per costume (264; 260 match a costume on the disc, `bay04`, `kas32`, `kas58`, `kas78`
+  don't), an `importFile` per mesh and `$meshNN.pos = [x, y, z]` in centimetres, mesh NN being OBJ_NN, translation only
+  and the main body meshes only (no low-detail or shadow copies). They agree with GreedXplorer within 5 mm on 142 costumes
+  (82 within 1 mm). Where they differ, each case was compared in the viewer:
+  - the scripts place pieces GreedXplorer parks in its hidden row of unknown meshes: Tengu's wings (`tng00`-`tng02`),
+    Ayane's earrings (`aya19`), the centre tassel of Helena's top (`hel12`), Ryu's drawn sword in his left hand (`ryu00`-
+    `ryu08`, a hidden Props group since he also wears it sheathed) and the mask at Ayane's hip (`aya02`, Props);
+  - Ryu's ponytail (`Hair1`, `ryu00`/`ryu01`) hangs down his back instead of GreedXplorer's 60° straight out;
+  - Zack's eyeballs (`zac00`) sit 16 mm lower and 7 mm further back, so they no longer poke out above the sunglasses
+    (the importer's `zac.doau` skeleton agrees with the script);
+  - everywhere else GreedXplorer is kept: Leon's whole upper body is 16 mm lower in the scripts and Jann Lee's feet
+    (`jan03`/`jan04`) 21 mm lower, while the importer's skeletons match GreedXplorer exactly; Kasumi's sash ornaments sink
+    2 cm into the sash; Bass's sunglasses sit on his hat brim; Jann Lee's tie loses its 30° tilt; Tengu's staff stands
+    48 cm beyond his hand; Ryu's two shoulder pieces in `ryu00` vanish inside the shoulder armour. 230 differences are a
+    mesh and its mirror copy placed on opposite sides (mostly the eyeballs), which can't be seen. `hks00` and `lor00`
+    are shifted 9-10 cm as a whole. The three costumes GreedXplorer only has borrowed layouts for (`gen06`, `leo06`,
+    `pdg02`) gain nothing: the scripts match the borrowed layout apart from Leon's 16 mm and a side swap.
+  The DOAX body scripts that come with them (one per girl) match the `.cat` + skeleton placement exactly, apart from
+  putting the origin at the hips.
 - DOA3 disc: everything is in `loadfile.afs` (plain XPR0, compact MDL). Per character `<name>.bin`, `<name>.mot`,
   `m_<name>.mot`, a `sprite.xpr` (name plate and select icon), then `<code><nn>.xpr` + `.cat`; stages `stg<XXX>.xpr` +
   `s<XXX>_dat.bin`; effects `efc0.xpr`. The codes are older style names; the name plates give `kte` Ein, `bay` Leon,
@@ -253,13 +275,16 @@ Verified unless marked otherwise.
 Dead or Alive Explorer © 2026 by CitrinoDX is licensed under
 [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/) (Attribution-NonCommercial-ShareAlike 4.0
 International); the full text is in [LICENSE](LICENSE). It covers this project's own code and documentation only. It
-grants no rights to the games' content, to GreedXplorer's layouts, or to the Team Ninja importer's files.
+grants no rights to the games' content, to GreedXplorer's layouts, to the Team Ninja importer's files, or to the 3ds Max
+layout scripts.
 
 ## Credits
 - **GreedXplorer** and the layout authors credited in its files (Kaz, Dony & Kaz): the per-costume limb layouts and
   signature tables the viewer can read from your copy, and the reference for culling behaviour.
 - The **Team Ninja Blender importers** (TMC / TPR / XPR-EMP, 2013): format notes for TPR and XPR-EMP, and the skeleton files
   the viewer can read from your copy.
+- The authors of the **3ds Max layout scripts** for the DOAU Exporter's `.3ds` output: the DOA2U piece positions the viewer
+  can read from your copy.
 - The wider Xbox modding community's documentation of XPR, XDVDFS and Xbox 360 texture tiling.
 
 Not affiliated with or endorsed by Koei Tecmo or Team Ninja. Dead or Alive is a trademark of Koei Tecmo. This project

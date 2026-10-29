@@ -201,8 +201,9 @@ canvas{position:absolute;inset:0;width:100%;height:100%;display:block;outline:no
     <details><summary>What to point it at</summary><ul id="ssupported"></ul></details>
     <h3>Optional: limb assembly data</h3>
     <p class="dim">DOA2U, DOA1U and DOAX store costumes as loose limbs. To assemble them, the viewer can read layouts from your own
-      GreedXplorer folder and skeletons from the Team Ninja Blender importer. Neither is included; without them models still load,
-      with the limbs unassembled. DOAX2 and DOA4 don't need them.</p>
+      GreedXplorer folder and skeletons from the Team Ninja Blender importer; the 3ds Max layout scripts made for the DOAU Exporter
+      add a few DOA2U pieces GreedXplorer leaves out. None are included; without them models still load, with the limbs
+      unassembled. DOAX2 and DOA4 don't need them.</p>
     <div id="sdata"></div>
   </div>
 </div>
@@ -913,7 +914,8 @@ function renderSetup(st){
   const rows=[
     ["greedxplorer","GreedXplorer folder (layouts)", d.greedxplorer,
      d.greedxplorer? [["DOA2U",L.doa2u],["DOA1U",L.doa1u],["DOA3",L.doa3],["DOAX",L.doax]].map(([n,c])=>c+" "+n).join(" · ")+" layouts" : "not set"],
-    ["skeletons","Team Ninja importer skeletons", d.skeletons, d.skeletons? d.skeleton_files+" skeleton files" : "not set"]];
+    ["skeletons","Team Ninja importer skeletons", d.skeletons, d.skeletons? d.skeleton_files+" skeleton files" : "not set"],
+    ["maxscripts","DOA2U 3ds Max layout scripts", d.maxscripts, d.maxscripts? d.maxscript_files+" costume scripts" : "not set"]];
   for(const [key,label,path,status] of rows){
     const r=document.createElement("div"); r.className="srowitem";
     r.innerHTML='<div><b>'+esc(label)+'</b>'+(path?'<div class="path">'+esc(path)+'</div>':'')+'<div class="dim">'+esc(status)+'</div></div>';

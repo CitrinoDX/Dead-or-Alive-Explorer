@@ -1,7 +1,8 @@
 """Dead or Alive 2 Ultimate (Xbox): costumes, stages and other XPRs from datahdd2/datadvd/datahdd.afs."""
 import os, re
 from ..afs import Afs
-from ..scene import Scene
+from ..scene import Scene, trs
+from ..sources import maxscript_files
 from .base import Game, sort_key_label, NEED_GX
 from . import xpr_mdl, gx_layout
 from . import cat_skel
@@ -18,6 +19,24 @@ NAMES = {  # extras from the Team Ninja importer's skeleton notes; hik/sui/gok/s
 
 ARCHIVES = ("datahdd2.afs", "datadvd.afs", "datahdd.afs")   # first hit wins for duplicated names
 COSTUME = re.compile(r"^([A-Za-z]{3})([A-Za-z]?\d+)\.xpr$")
+
+# The 3ds Max layout scripts (one per costume) agree with GreedXplorer within 5 mm on 142 of their 260 costumes. Every
+# other difference was compared in the viewer; these placements are the better ones: costume -> {mesh: part name}, an
+# empty name keeping GreedXplorer's. Elsewhere GreedXplorer wins (it matches the importer's skeletons) or the difference
+# can't be seen (left and right copies of a mesh swapped).
+WINGS = {**{30 + i: "Wing %d" % (i + 1) for i in range(5)}, **{50 + i: "Wing %d (mirror)" % (i + 1) for i in range(5)}}
+SCRIPT_FIX = {
+    "zac00": {31: "", 32: ""},                         # eyeballs: GreedXplorer's poke out above the sunglasses
+    "ryu00": {24: ""}, "ryu01": {23: ""},              # Hair1: the ponytail hangs down his back (GreedXplorer: 60° out)
+    "hel12": {2: "Tassel"},                            # the top's centre tassel; these and below are unplaced in GreedXplorer
+    "aya19": {14: "Earring", 29: "Earring (mirror)"},
+    "tng00": WINGS, "tng01": WINGS,
+    "tng02": {**{60 + i: "Wing %d" % (i + 1) for i in range(5)}, **{38 + i: "Wing %d (mirror)" % (i + 1) for i in range(5)}},
+}
+# placed by the script but only shown in some moves: a hidden group
+SCRIPT_PROPS = dict({k: {4: "Drawn sword"} for k in ("ryu00", "ryu01")},
+                    **{k: {6: "Drawn sword"} for k in ("ryu02", "ryu03", "ryu04", "ryu05")},
+                    **{k: {3: "Drawn sword"} for k in ("ryu06", "ryu07", "ryu08")}, aya02={1: "Mask"})
 
 
 class DOA2U(Game):
@@ -60,6 +79,7 @@ class DOA2U(Game):
     def set_sources(self, sources):
         super().set_sources(sources)
         self.layouts = gx_layout.LayoutFinder(sources.layout_dir("doa2u"), sources.alias_path("doa2u"))
+        self.scripts = maxscript_files(sources.maxscripts) if sources.maxscripts else {}
         # the 'A#' costumes are DOA3 models: each matches a DOA3 costume's mesh + texture count exactly
         self.doa3_layouts = gx_layout.LayoutFinder(sources.layout_dir("doa3"), sources.alias_path("doa3"))
 
@@ -107,6 +127,7 @@ class DOA2U(Game):
             if path:
                 gx_layout.place_parts(sc, gx_layout.parse_layout(path), len(x.objs))
                 if sc.parts:
+                    self._script_pieces(sc, sid)
                     self._skeleton(sc, e, 2)
             if not sc.parts:
                 sc.default_parts()
@@ -118,6 +139,25 @@ class DOA2U(Game):
             if not x.objs:
                 sc.note = "texture bundle (no meshes)"
         return sc
+
+    def _script_pieces(self, sc, sid):
+        """SCRIPT_FIX / SCRIPT_PROPS pieces at their 3ds Max script positions, when the user has the scripts."""
+        pieces = [(m, nm, True) for m, nm in SCRIPT_FIX.get(sid, {}).items()] + \
+                 [(m, nm, False) for m, nm in SCRIPT_PROPS.get(sid, {}).items()]
+        if not pieces or sid not in self.scripts:
+            return
+        pos = gx_layout.parse_maxscript(self.scripts[sid])
+        placed = 0
+        for m, name, shown in pieces:
+            if m not in pos or m >= len(sc.meshes) or sc.meshes[m] is None:
+                continue
+            old = [p for p in sc.parts if p["mesh"] == m]
+            sc.parts = [p for p in sc.parts if p["mesh"] != m]
+            sc.add_part(name or (old[0]["name"] if old else "OBJ_%d" % m), m, trs(pos[m]),
+                        "Character" if shown else "Props", shown)
+            placed += 1
+        if placed:
+            sc.note += "; %d piece%s from the 3ds Max layout script" % (placed, "" if placed == 1 else "s")
 
     def _skeleton(self, sc, e, version):
         """Layout-placed costumes: the character's skeleton for the skeleton view. The importer's skeleton files put

@@ -42,6 +42,20 @@ def parse_layout(path):
     return groups
 
 
+def parse_maxscript(path):
+    """3ds Max layout script for one DOA2U costume (made for the DOAU Exporter's .3ds files): an importFile per mesh, then
+    '$meshNN.pos = [x, y, z]' in centimetres, mesh NN being OBJ_NN, translation only -> {mesh: (x, y, z) in metres}"""
+    out = {}
+    for line in open(path, encoding="latin-1"):
+        m = re.match(r"\s*\$mesh(\d+)\.pos\s*=\s*\[([^\]]*)\]", line)
+        if m:
+            try:
+                out[int(m.group(1))] = tuple(float(v) / 100 for v in m.group(2).split(","))
+            except ValueError:
+                pass
+    return out
+
+
 class LayoutFinder:
     def __init__(self, xml_dir, alias_path=None):
         self.xml_dir = xml_dir
