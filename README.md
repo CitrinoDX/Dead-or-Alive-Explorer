@@ -24,17 +24,18 @@ and the only file it writes is its own `config.json`.
 | Dead or Alive 4 (Xbox 360) | the disc image (`.iso`), or an extracted folder with `chrone.afs` / `chrtwo.afs` / `chrthree.afs` | read straight from the image; assembles without extra data |
 
 ### Optional: limb assembly data
-DOA2U, DOA1U, DOA3 and DOAX store costumes as loose limbs. To assemble them, the viewer reads third-party data you may
-already have; it is not included in this project. Add any of these folders in Setup:
-- your **GreedXplorer** folder (its `doau2data`, `doau1data`, `doa3data`, `doaxdata` layout folders): DOA2U, DOA1U, DOA3 and
-  the DOA3-era DOA2U costumes;
+DOA2U, DOA1U, DOA3 and DOAX store costumes as loose limbs. DOA3 assembles from its own files (each costume's `.cat` and
+the skeletons in `default.xbe`); for the others the viewer reads third-party data you may already have; it is not included
+in this project. Add any of these folders in Setup:
+- your **GreedXplorer** folder (its `doau2data`, `doau1data`, `doa3data`, `doaxdata` layout folders): DOA2U, DOA1U, the
+  DOA3-era DOA2U costumes, and DOA3's hair and cloth pieces the `.cat` doesn't place;
 - the **Team Ninja Blender importer** (2013) folder or its `skeletons` subfolder: DOAX bodies and swimsuits, and the
-  skeleton view for DOA2U and DOA3;
+  skeleton view for DOA2U;
 - the **3ds Max layout scripts** made for the DOAU Exporter's `.3ds` files (`aya00.3ds.ms`, ... in per-character folders,
   e.g. a `DOAU ms files` folder): a few DOA2U pieces GreedXplorer leaves out or misplaces (Tengu's wings, Ryu's ponytail,
   ...). Optional on top of GreedXplorer.
 
-Without them every model still loads with its textures, but the limbs sit at their stored origins.
+Without them every model still loads with its textures, but (DOA3 apart) the limbs sit at their stored origins.
 
 ### Command line (optional)
 ```
@@ -57,8 +58,9 @@ options: --port 8765  --no-browser  --forget KEY  --version
   panel starts minimised in DOAX2 to make room.
 - Skeleton view (dropdown or `B`): off, drawn on top of the model, or the skeleton alone. The **Bones** tab in the parts
   panel lists the hierarchy; hovering a bone or a joint names it, clicking centres the view on it. A bone that belongs to
-  a part shows only while that part does. Available wherever the limbs are assembled from bone data: DOA2U, DOA3 and DOAX
-  (the importer's skeleton files, or one embedded in the `.cat`), DOAX2 and DOA4 (the file's node tree). DOA1U has none yet.
+  a part shows only while that part does. Available wherever the limbs are assembled from bone data: DOA2U and DOAX
+  (the importer's skeleton files, or one embedded in the `.cat`), DOA3 (the skeleton table in `default.xbe`), DOAX2 and
+  DOA4 (the file's node tree). DOA1U has none yet.
 - Texture browser (button or `T`): every texture with size and format, a lightbox with zoom, an alpha toggle and Save PNG,
   "Ignore alpha" for normal/specular maps, and "Download all" as a zip. Texture-only files (UI, sprites) open here directly.
 - Links: `#game/id` in the URL opens that entry; back/forward work.
@@ -68,7 +70,7 @@ options: --port 8765  --no-browser  --forget KEY  --version
 |---|---|
 | DOA2U | 418/418 entries load. Costumes assemble with GreedXplorer layouts (258 exact); the 25 `A#` costumes are DOA3 models and use GreedXplorer's DOA3 layouts, matched by mesh and texture count. With the 3ds Max layout scripts, 16 costumes get pieces GreedXplorer leaves out or misplaces |
 | DOA1U | 135/135 load. Only gen00/jan00/jan01 have layouts and there are no `.cat` files, so the rest show unassembled. Stages are texture-only |
-| DOA3 | 174/174 load: 69 costumes of 19 characters (Leon's three unused costumes and Omega included), 27 stages, effects and 77 menu sprite bundles. Costumes assemble with GreedXplorer's DOA3 layouts (65 by name, 4 by mesh and texture count) and get the importer's `.doa3` skeleton. Stages are in world space; sky domes and distant backdrops start hidden so the view frames the arena |
+| DOA3 | 174/174 load: 69 costumes of 19 characters (Leon's three unused costumes and Omega included), 27 stages, effects and 77 menu sprite bundles. All 69 costumes assemble from their `.cat` and the skeleton table in `default.xbe`, no extra data needed: limbs, joints, eyes, low poly and shadow meshes (2112 of the 2148 meshes GreedXplorer also places agree within 1 cm; the rest within 3.5 cm). With GreedXplorer, its hand-placed hair and cloth pieces fill in what the `.cat` doesn't place (150 meshes). Stages are in world space; sky domes and distant backdrops start hidden so the view frames the arena |
 | DOAX | 2593/2593 load. Bodies (`v<code>NN`) and ~2000 swimsuits/accessories (`md<item><wearer>`) placed from each `.cat` bone map + the wearer's skeleton. 19 items use a newer `.cat` variant and show unassembled |
 | DOAX2 | 1016/1016 load. Bodies, heads, swimsuits, items, boats, stages; placed from the file's own node tree. Heads are listed by hairstyle, each with its wet version. Swimsuits are listed by their shop names and show the owner's fit; the fits for the other body types are toggles in the parts panel. The character picker dresses any girl in any head, fitting swimsuit and shoes |
 | DOA4 | 854/854 load and every texture on the disc decodes (19,952). 23 characters plus a cutscene cast (117 costumes, 25 heads, 17 colour variants listed with their base), 24 stages, effects, menus and 635 online-lobby avatar parts; placed from the file's own node tree. Head-swap characters get their `AA` head, the other hairstyles are toggles in the parts panel |
@@ -97,7 +99,7 @@ with `--version`.
 - `doaexplorer/export.py`: OBJ zip, GLB, FBX, texture zip. `doaexplorer/fbx.py`: binary FBX 7.4 writer.
   `doaexplorer/afs.py`: AFS reader. `doaexplorer/vfs.py`: folder or Xbox disc image (XDVDFS).
 - `doaexplorer/games/`: `doa2u.py`, `doa1u.py`, `doa3.py`, `doax.py`, `doax2.py`, `doa4.py`, plus format modules `xbox_crypt.py`, `xpr_mdl.py`,
-  `gx_layout.py`, `cat_skel.py` (.cat bone map + skeleton placement), `tpr.py`.
+  `gx_layout.py`, `cat_skel.py` (.cat bone map + skeleton placement), `cat3.py` (the newer DOA3 `.cat`), `tpr.py`.
   A new game is one module with `find_root`, `tree`, `load` and an entry in `games/__init__.py`.
 - `tools/`: standalone AFS survey/extract and memory-dump helper scripts.
 
@@ -117,7 +119,28 @@ Verified unless marked otherwise.
 - `.cat` placement (DOAX, DOA2U regular): (offset, type) sections after +0x14; type 1 = bone list of (id, bone, OBJ) triples
   (type 9 = low poly), 5 = shadow, 8 = embedded skeleton; +8 physics table, +16 joints. A limb sits at the sum of its skeleton
   bone offsets up a fixed 24-bone parent chain; this reproduces DOAX2's node positions exactly (Ayane's head at y = 0.507).
-  A newer variant (dword0 = 1; DOA2U `A#`, 19 DOAX items) has a different section layout and is not decoded.
+  A newer variant (dword0 = 1; DOA3, DOA2U `A#`) has a different section layout, below; the 19 DOAX items that start
+  with 1 are a third, 132-byte layout and are not decoded.
+- Newer `.cat` (`cat3.py`; every DOA3 costume, DOA2U's 25 `A#`): 5 header dwords, the version (1) and the offsets of
+  sections A-D. 46 of DOA3's 69 obfuscate the header: dword0 = key | 1, and dwords 1-4 are XORed with key >> 5, each next
+  key being the previous * 5 // 7. A (+0x14): `0x100, 1`, the offset of the mesh lists, then (type, offset) pairs and
+  flags. The lists are OBJ numbers after a marker byte: 0xFE high poly for bones 0-14 in order, 0xFD the eyes, 0xFB a
+  second forearm segment (bones 19/20, placed like the forearms), 0xF9 low poly, 0xF8 shadow, 0xF7/0xF6 a few extras,
+  0xFF ends them. B is the hair and cloth physics (spring chains rooted on bones: radius, mass, stiffness, damping, root
+  and segment), C the `LNK` vertex links; neither is used.
+  D holds the joint meshes (neck, waist, shoulders, elbows, wrists, hips, knees, ankles), each stored in the frame of its
+  bone a. A record starts with bone b's rotation into bone a's frame (rows interleaved with an identity's), two pivots,
+  then rings of vertices (position, normal). The index blocks after it weight each ring in 16ths and list the joint-mesh
+  vertices it holds. A weight-16 ring sits rigidly on bone b, so joint vertex = R × ring + t gives bone b's offset t.
+  Partly weighted rings are relative to a pivot lerped between the two, which gives the same t. Every such offset matches
+  the skeleton table to 0.1 mm. Chained from the hips, the rotations are identical in all 69 DOA3 costumes and all 25
+  `A#`: **each limb is stored along its own Z axis** (forearms and shins -Z, upper arms and thighs +Z), while the hips,
+  chest, head, hands, feet and eyes are not turned. That is why the limbs need rotating as well as moving. Files whose
+  joint flags are all 0 swap the forearm ids (19/20) of the two wrist joints.
+- DOA3 skeletons: `default.xbe` holds a table of 17 × (x, y, z, 0) offsets per character (bones 0-14, then the eyes) in
+  the order zac tin jan kte ryu kas gen hik bay bas nin lei aya kor tng bni sui gok chi sam, then a partial Raidou record.
+  The importer's `.doa3` files are copies of it. The viewer finds the table by its shape: zero hips, mirrored feet and
+  forearms, records 0x110 bytes apart; it is at 0x31F208 on the USA disc. DOA2U's xbes have no such table.
 - The importer's skeleton files (`<code>.doau/.doa3/.doax`: 24 bones of x, y, z, pad; Tengu has 30 with wings) put DOA2U's
   joints within a few millimetres of GreedXplorer's limb positions, so layout-placed costumes get that skeleton too.
   Slot 15 ("Unknown0") is zero in every file and is left out.
@@ -158,8 +181,10 @@ Verified unless marked otherwise.
   `s<XXX>_dat.bin`; effects `efc0.xpr`. The codes are older style names; the name plates give `kte` Ein, `bay` Leon,
   `sam` Bayman, `kor` Hitomi, `hik` Helena, `sui` Brad Wong, `gok` Christie, `bni` Omega, and `chi` (sharing Brad's
   `suiken.mot`) is a second Gen Fu. Tengu has `.bin`/`.mot` files but no model. All 69 `.cat` files are the newer variant.
-  Kasumi's and Ayane's GreedXplorer layouts list a `hair` mesh without a position; it is an exact copy of the hair inside
-  the head mesh and is hidden. Stage objects are stored in world space; arenas span 10-100 units, sky domes up to 47,000.
+  Most costumes have a physics hair mesh that is an exact copy of the hair inside the head mesh; it goes on the head,
+  hidden (GreedXplorer's Kasumi and Ayane layouts list it as an unplaced `hair` mesh). Many also carry a third, coarser
+  set of limbs (bones 3-14, joints merged in) that no `.cat` list names. Stage objects are stored in world space; arenas
+  span 10-100 units, sky domes up to 47,000.
 - XPR2/TPR (360, big-endian): USER chunks (header, MdlGeo, MdlInfo, Hie), TX2D/VBUF/IBUF into the data block. Chunk tables:
   count at +0x14, offsets at +0x20. Vertex decls are D3DDECLTYPE layers (FLOAT3, HEND3N, FLOAT16_2, ...). Strips use 0xFFFF
   restarts. Hie nodes are row-vector 4x4 matrices with parent node indices, one per object (node index = object index);
@@ -256,8 +281,10 @@ Verified unless marked otherwise.
   shoulder 5 cm further in than `gen.doau`).
 - Skeleton view: TPR node trees have no bone names (bones are named after their objects). The FBX skeleton is not bound
   to the meshes (blend weights are not decoded); OBJ and GLB carry no bones.
-- The newer `.cat` variant (dword0 = 1; DOA2U `A#`, every DOA3 costume, 19 DOAX items) is not decoded, so DOA3 costumes
-  need GreedXplorer's layouts to assemble.
+- DOA3: the hair and cloth pieces moved by the physics (section B) are not placed from the `.cat`. Without GreedXplorer
+  they stay hidden under Unassigned (308 meshes with it, 458 without, the coarser limb set included). DOA2U's `A#`
+  costumes could use `cat3.py` too but don't yet: DOA2U has no skeleton table, so they would need the importer's
+  skeletons or the joint offsets alone. The 132-byte DOAX `.cat` variant is not decoded.
 - DOA3: stage vertex colours (the baked lighting of the pre-lit geometry) are not used, and multi-stage materials draw
   their first stage only. Stages are listed by their file codes; `s<XXX>_dat.bin` and the `.mot` animations are not parsed.
 - DOAX: no "wear swimsuit on body" combination yet (each file is shown on its own); stages show at their stored origins.

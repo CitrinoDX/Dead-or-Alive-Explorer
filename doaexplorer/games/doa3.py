@@ -1,16 +1,17 @@
 """Dead or Alive 3 (Xbox): read straight from the disc image (or an extracted folder). Everything sits in
 loadfile.afs: per character <name>.bin / .mot, a sprite.xpr (name plate and icon) and the costumes <code><nn>.xpr
 (+ .cat); stages stg<XXX>.xpr (+ s<XXX>_dat.bin), effects efc0.xpr and the menu sprite.xpr bundles.
-All XPRs are plain XPR0 with the compact MDL layout. Costume limbs are stored around their own pivots and are placed
-with GreedXplorer's DOA3 layouts (matched by name, else by mesh and texture count); the .cat files are the newer
-variant (dword0 = 1) and are not decoded. Stages are stored in world space."""
+All XPRs are plain XPR0 with the compact MDL layout. Costume limbs are stored around their own pivots, each along its
+own Z axis: the .cat (cat3.py) names each limb's bone and gives the bind rotations, and default.xbe holds every
+character's skeleton. Hair and cloth pieces moved by the physics are placed from GreedXplorer's DOA3 layouts when
+the user has them (matched by name, else by mesh and texture count). Stages are stored in world space."""
 import os, re
 import numpy as np
 from ..afs import Afs
 from .. import vfs
-from .base import Game, sort_key_label, NEED_GX
-from . import xpr_mdl, gx_layout, cat_skel
-from .doax import cat_skeleton
+from .base import Game, sort_key_label
+from ..scene import Scene
+from . import xpr_mdl, gx_layout, cat_skel, cat3
 
 # from each character's name plate in its sprite.xpr. The file codes are older style names: karate = Ein,
 # bayman = Leon (not playable in DOA3, but his three costumes are on the disc), sambo = Bayman, koryu = Hitomi,
@@ -24,6 +25,11 @@ NAMES = {
 ARCHIVE = "loadfile.afs"
 COSTUME = re.compile(r"^([a-z]{3})(\d\d)\.xpr$", re.I)
 STAGE = re.compile(r"^stg(\w+)\.xpr$", re.I)
+# default.xbe's skeleton table, one record per character in this order: 17 (x, y, z, 0) offsets, bones 0-14 then the
+# eyes (the Team Ninja importer's .doa3 files are copies of it). A 21st, partial record (Raidou) follows.
+XBE_ORDER = ("zac", "tin", "jan", "kte", "ryu", "kas", "gen", "hik", "bay", "bas", "nin", "lei", "aya", "kor", "tng",
+             "bni", "sui", "gok", "chi", "sam")
+XBE_RECORD = 68   # dwords
 
 
 class DOA3(Game):
@@ -83,6 +89,7 @@ class DOA3(Game):
             if e["id"] not in self.entries:
                 self.entries[e["id"]] = e
         self._tree = None
+        self._skeletons = None
 
     def _next_costume_code(self, i):
         """code of the first costume after entry i, if it comes before the next character's files"""
@@ -97,6 +104,19 @@ class DOA3(Game):
     def set_sources(self, sources):
         super().set_sources(sources)
         self.layouts = gx_layout.LayoutFinder(sources.layout_dir("doa3"), sources.alias_path("doa3"))
+
+    def skeleton(self, char):
+        """(24 bone offsets or None, where they came from): default.xbe's table, else the user's importer file"""
+        if self._skeletons is None:
+            try:
+                with self.src.open("default.xbe") as f:
+                    self._skeletons = xbe_skeletons(f.read())
+            except (OSError, ValueError):
+                self._skeletons = {}
+        if char in self._skeletons:
+            return self._skeletons[char], "default.xbe"
+        bones = cat_skel.load_skeleton(char, 3, self.sources.skeletons) if self.sources.skeletons else None
+        return bones, "%s.doa3" % char
 
     def tree(self):
         if self._tree is None:
@@ -125,20 +145,7 @@ class DOA3(Game):
         sc, x = xpr_mdl.to_scene(sid, self.afs.read(e["index"]), title)
         sc.info["archive"] = "%s #%d (%s)" % (ARCHIVE, e["index"], e["name"])
         if e["kind"] == "costume":
-            path, note = self.layouts.find(sid, len(x.objs), len(x.textures))
-            sc.note = note
-            if path:
-                gx_layout.place_parts(sc, gx_layout.parse_layout(path), len(x.objs))
-                hide_copies(sc)
-            if sc.parts:
-                cat = self.afs.read(e["cat"]) if e["cat"] is not None else None
-                bones, src = cat_skeleton(cat, e["char"], self.sources.skeletons, 3)
-                if bones:
-                    cat_skel.add_skeleton(sc, bones, src)
-            else:
-                sc.default_parts()
-                sc.note = ("no layout available - parts shown at their stored origin" if self.sources.greedxplorer
-                           else "parts shown at their stored origin - " + NEED_GX)
+            self.assemble(sc, x, e)
         elif e["kind"] == "stage":
             nfar = split_far(sc)
             if nfar:
@@ -148,6 +155,88 @@ class DOA3(Game):
             if not x.objs:
                 sc.note = "texture bundle (no meshes)"
         return sc
+
+    def assemble(self, sc, x, e):
+        """Limbs, joints, eyes, low poly and shadow meshes from the .cat; copies of a placed mesh (the physics hair)
+        hidden on it; the remaining hair and cloth pieces from GreedXplorer's layout, else hidden under Unassigned."""
+        cat = None
+        try:
+            cat = cat3.parse(self.afs.read(e["cat"])) if e["cat"] is not None else None
+        except ValueError:
+            pass
+        bones, src = self.skeleton(e["char"])
+        placed, notes = set(), []
+        if cat:
+            if bones is not None:
+                P, how = cat3.skeleton_positions(bones), "the skeleton in " + src
+            else:
+                P = cat3.joint_skeleton(cat, {i: ob.positions[0] for i, ob in enumerate(x.objs) if 0 in ob.positions})
+                how = "its joints alone (no eyes, and no hands without wrist joints)"
+            placed = cat3.place(sc, cat, P, len(x.objs))
+            notes.append("placed from the .cat and " + how)
+        placed |= place_copies(sc, placed)
+        path, note = self.layouts.find(e["id"], len(x.objs), len(x.textures))
+        if path:
+            gs = Scene(e["id"])
+            gs.meshes = sc.meshes
+            gx_layout.place_parts(gs, gx_layout.parse_layout(path), len(x.objs))
+            if not placed:
+                sc.parts = gs.parts
+                hide_copies(sc)
+                notes.append(note)
+                more = gs.parts
+            else:
+                # its hand-placed pieces; the pieces it spreads out in a row (Misc 'OBJ_n') are no better than none
+                more = [p for p in gs.parts if p["mesh"] not in placed and (p["group"] == "Character" or p["visible"])]
+                sc.parts += more
+                if more:
+                    notes.append("%d more from GreedXplorer's %s" % (len({p["mesh"] for p in more}),
+                                                                      os.path.basename(path)))
+            placed |= {p["mesh"] for p in more}
+        if not placed:
+            sc.default_parts()
+            sc.note = "no .cat or layout - parts shown at their stored origin"
+            return
+        left = [i for i, g in enumerate(sc.meshes) if g is not None and i not in placed]
+        for i in left:
+            sc.add_part(sc.meshes[i].get("name") or "OBJ_%d" % i, i, None, "Unassigned", visible=False)
+        if left:
+            notes.append("%d meshes the .cat doesn't place (physics hair and cloth, a coarser set of limbs) hidden "
+                         "under Unassigned" % len(left))
+        if bones is not None:
+            cat_skel.add_skeleton(sc, bones, src)
+        sc.note = "; ".join(notes)
+
+
+def xbe_skeletons(xbe):
+    """char code -> 24 bone offsets from default.xbe's skeleton table, found by its shape: the hips record is zero,
+    the right foot repeats the left, the right forearm mirrors the left, and records follow every XBE_RECORD dwords"""
+    a = np.frombuffer(xbe, "<u4", len(xbe) // 4)
+    f = a.view("<f4")
+    n = len(a) - XBE_RECORD
+    if n <= 0:
+        return {}
+    s, t = (lambda k: a[k:k + n]), (lambda k: f[k:k + n])
+    ok = (s(3) == 0) & (s(7) == 0) & (s(8) == 0) & (s(9) == 0) & (s(10) == 0) & (s(11) == 0)
+    ok &= (s(36) == s(12)) & (s(37) == s(13)) & (s(38) == s(14)) & (t(16) > 0.1) & (t(40) == -t(16))
+    cand = set(np.nonzero(ok)[0].tolist())
+    best = []
+    for c in sorted(cand):
+        if c - XBE_RECORD in cand:
+            continue
+        run = [c]
+        while run[-1] + XBE_RECORD in cand:
+            run.append(run[-1] + XBE_RECORD)
+        best = max(best, run, key=len)
+    if len(best) < len(XBE_ORDER):
+        return {}
+    out = {}
+    for code, c in zip(XBE_ORDER, best):
+        r = f[c:c + XBE_RECORD].reshape(17, 4)[:, :3].astype(np.float64)
+        bones = np.zeros((24, 3))
+        bones[:15], bones[cat3.EYE_BONES[0]], bones[cat3.EYE_BONES[1]] = r[:15], r[15], r[16]
+        out[code] = bones
+    return out
 
 
 FAR_GAP, FAR_SIZE = 100.0, 400.0   # stage units: the arenas span 10-100, sky domes and backdrops up to 47,000
@@ -169,19 +258,43 @@ def split_far(sc):
     return nfar
 
 
+def shown_vertices(sc):
+    """mesh -> (its first visible Character part, its vertex set)"""
+    shown = {}
+    for p in sc.parts:
+        if p["group"] == "Character" and p["visible"] and sc.meshes[p["mesh"]] is not None:
+            shown.setdefault(p["mesh"], (p, {tuple(v) for v in np.round(sc.meshes[p["mesh"]]["pos"], 5)}))
+    return shown
+
+
+def copy_of(shown, sc, mesh):
+    """the part showing a mesh that contains every vertex of this one, or None"""
+    verts = {tuple(v) for v in np.round(sc.meshes[mesh]["pos"], 5)}
+    return next((p for m, (p, vs) in shown.items() if m != mesh and verts <= vs), None)
+
+
+def place_copies(sc, placed):
+    """The physics hair of most costumes is an exact copy of the hair inside the head mesh: put a mesh the .cat leaves
+    over on the part that shows all its vertices, hidden. Returns the meshes it placed."""
+    shown, out = shown_vertices(sc), set()
+    for i, g in enumerate(sc.meshes):
+        if g is not None and i not in placed:
+            p = copy_of(shown, sc, i)
+            if p is not None:
+                sc.add_part("%s (copy)" % (g.get("name") or "OBJ_%d" % i), i, p["m"], p["group"], visible=False)
+                out.add(i)
+    return out
+
+
 def hide_copies(sc):
     """Kasumi's and Ayane's layouts list a 'hair' mesh in Misc with no position, so it would show at the hips. It is
     an exact copy of the hair inside the head mesh: hide a visible unplaced Misc part whose vertices all occur in a
     mesh the Character group already shows."""
-    shown = {}
-    for p in sc.parts:
-        if p["group"] == "Character" and p["visible"] and sc.meshes[p["mesh"]] is not None:
-            shown.setdefault(p["mesh"], {tuple(v) for v in np.round(sc.meshes[p["mesh"]]["pos"], 5)})
+    shown = shown_vertices(sc)
     for p in sc.parts:
         g = sc.meshes[p["mesh"]]
         if p["group"] != "Misc" or not p["visible"] or g is None or not np.allclose(p["m"], np.eye(4)):
             continue
-        verts = {tuple(v) for v in np.round(g["pos"], 5)}
-        if any(verts <= vs for m, vs in shown.items() if m != p["mesh"]):
+        if copy_of(shown, sc, p["mesh"]) is not None:
             p["visible"] = False
             p["name"] += " (copy)"
