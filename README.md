@@ -65,6 +65,11 @@ options: --port 8765  --no-browser  --forget KEY  --version
 ## Versions
 Numbered MAJOR.MINOR.PATCH; 0.x while it is a work in progress. The version shows in the Setup panel, at startup and
 with `--version`.
+- **0.3.0**: DOAX2 read straight from the disc image. DOAX2 swimsuits are named after their shop names and fitted to
+  each body type (the owner's fit shows; the other fits are toggles in the parts panel); heads are named by hairstyle,
+  each with its wet version. Skeleton view, sphere-mapped reflection textures, game picker dropdown. Fixes: every DOA2U /
+  DOA1U / DOAX material is read, TPR alpha blending comes from the material flag, Kokoro's hair is no longer white
+  (DOAX2, DOA4).
 - **0.2.0**: Dead or Alive 4 (Xbox 360), read straight from the disc image. Low-detail, shadow and prop objects start
   hidden; head-swap characters get their head attached, with alternate hairstyles in the parts panel.
 - **0.1.0**: first public release. DOA2U, DOA1U, DOAX and DOAX2; Setup panel; OBJ/GLB/PNG export.
