@@ -105,16 +105,13 @@ class Scene:
         return img if img is not None else texture.placeholder(t["w"], t["h"])
 
     def texture_png(self, i, opaque=False):
-        """opaque=True drops the alpha channel (normal/specular maps often keep alpha at zero)"""
+        """opaque=True drops the alpha channel (normal/specular maps often keep alpha at zero): an RGB PNG"""
         k = (i, opaque)
         if k not in self._png:
             img = self.texture_rgba(i)
             if not opaque:
                 self._alpha.setdefault(i, texture.alpha_class(img))
-            if opaque:
-                img = img.copy()
-                img[:, :, 3] = 255
-            self._png[k] = texture.png_bytes(img)
+            self._png[k] = texture.png_bytes(img[:, :, :3] if opaque else img)
         return self._png[k]
 
     def texture_alpha(self, i):

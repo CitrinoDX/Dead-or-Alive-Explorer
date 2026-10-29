@@ -2,7 +2,7 @@
 
 A local viewer for the models and textures of the Xbox and Xbox 360 Dead or Alive games. A small Python server reads the game
 archives directly (CRI AFS archives, Xbox disc images) and a WebGL2 page shows the assembled characters, stages and
-textures, with OBJ, GLB and PNG export.
+textures, with OBJ, GLB, FBX and PNG export.
 
 **No game data is included.** Use your own copies of the games. The viewer only ever reads them: nothing is modified,
 and the only file it writes is its own `config.json`.
@@ -42,7 +42,8 @@ options: --port 8765  --no-browser  --forget KEY  --version
 
 ## What it does
 - Sidebar: game switcher, then characters > costumes / stages / other resources. Search, ←/→ for prev/next.
-- 3D view: assembled model, shading modes, wireframe, parts panel (toggle/hover), OBJ or GLB export of what is visible.
+- 3D view: assembled model, shading modes, wireframe, parts panel (toggle/hover), OBJ, GLB or FBX export of what is
+  visible. The FBX embeds its textures and carries the skeleton too (not skinned).
   Culling button / **Alt+C** cycles GreedXplorer's four modes in its order: none, CW (back faces), CCW (front faces),
   per material (default, remembered between visits).
 - Skeleton view (dropdown or `B`): off, drawn on top of the model, or the skeleton alone. The **Bones** tab in the parts
@@ -77,13 +78,14 @@ with `--version`.
 ## Code layout
 - `run_explorer.py`: command line. `doaexplorer/server.py`: HTTP API (`/api/games`, `/api/setup`, `/api/library/<game>`,
   `/api/model/<game>/<id>`, `/api/tex/<game>/<id>/<n>.png[?opaque=1]`, `/api/textures/<game>/<id>.zip`,
-  `/api/export/<game>/<id>.obj.zip|.glb?parts=`) plus the Setup endpoints, which only answer pages served from this machine.
+  `/api/export/<game>/<id>.obj.zip|.glb|.fbx?parts=`) plus the Setup endpoints, which only answer pages served from this machine.
 - `doaexplorer/config.py`: `config.json` (per machine, not committed). `doaexplorer/sources.py`: the optional GreedXplorer and
   skeleton folders.
 - `doaexplorer/scene.py`: the common model every game produces (meshes, parts with 4x4 matrices, textures, bones for the
   skeleton view, orientation basis).
 - `doaexplorer/texture.py`: DXT1/3/5, BC5, Xbox swizzled/linear formats (incl. P8 + palette, V8U8), Xbox 360 tiling + byte swaps, PNG.
-- `doaexplorer/export.py`: OBJ zip, GLB, texture zip. `doaexplorer/afs.py`: AFS reader. `doaexplorer/vfs.py`: folder or Xbox disc image (XDVDFS).
+- `doaexplorer/export.py`: OBJ zip, GLB, FBX, texture zip. `doaexplorer/fbx.py`: binary FBX 7.4 writer.
+  `doaexplorer/afs.py`: AFS reader. `doaexplorer/vfs.py`: folder or Xbox disc image (XDVDFS).
 - `doaexplorer/games/`: `doa2u.py`, `doa1u.py`, `doax.py`, `doax2.py`, `doa4.py`, plus format modules `xbox_crypt.py`, `xpr_mdl.py`,
   `gx_layout.py`, `cat_skel.py` (.cat bone map + skeleton placement), `tpr.py`.
   A new game is one module with `find_root`, `tree`, `load` and an entry in `games/__init__.py`.
@@ -177,12 +179,20 @@ Verified unless marked otherwise.
   its texture's real alpha: opaque -> solid, only clear/solid pixels -> alpha-tested cut-out (still writes depth), real
   translucency (hair) -> two passes: the solid core (alpha >= 0.85) is drawn with depth writes so front layers hide back
   ones, then the soft edges are blended on top without depth writes. GLB export uses the same classes (OPAQUE / MASK / BLEND).
+- FBX export: binary 7.4, Y up, metres with `UnitScaleFactor` 100 (Blender and Unity import it at the GLB's size), one
+  mesh per part in world space like the GLB. Textures are embedded. Importers take alpha from any RGBA diffuse texture
+  (Blender checks only the image depth), so opaque materials embed an RGB copy and only alpha-tested / blended ones get
+  the RGBA texture, also linked as `TransparentColor`. Bones are a `LimbNode` tree under a `skeleton` null, positions only
+  (the data has no joint orientations, so Blender points them all one way unless *Automatic Bone Orientation* is ticked).
+  Checked against both Blender 5.0 FBX importers (positions, UVs, normals, materials and bone positions match the GLB and
+  the viewer); not tried in Autodesk software.
 
 ## Open items
 - DOA1U: 48 costumes have no layout and there are no `.cat` files, so they need more layouts or another skeleton source.
   It has no skeleton view: its proportions differ from the DOA2U skeleton files (Gen Fu's DOA1U layout puts each
   shoulder 5 cm further in than `gen.doau`).
-- Skeleton view: TPR node trees have no bone names (bones are named after their objects); bones are not exported to GLB.
+- Skeleton view: TPR node trees have no bone names (bones are named after their objects). The FBX skeleton is not bound
+  to the meshes (blend weights are not decoded); OBJ and GLB carry no bones.
 - The newer `.cat` variant (dword0 = 1) is not decoded. One `A#` material references texture 190 of 41 (unknown shared table).
 - DOAX: no "wear swimsuit on body" combination yet (each file is shown on its own); stages show at their stored origins.
 - DOAX2: LOD/shadow meshes are not separated (the `.cat` "long way" isn't decoded); no skinning or morphs; small textures that

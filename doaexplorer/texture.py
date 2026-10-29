@@ -287,12 +287,13 @@ def placeholder(w, h):
 
 
 def png_bytes(rgba):
-    h, w = rgba.shape[:2]
+    """(h,w,4) RGBA or (h,w,3) RGB uint8 -> PNG"""
+    h, w, n = rgba.shape
     rgba = np.ascontiguousarray(rgba, dtype=np.uint8)
-    raw = np.zeros((h, w * 4 + 1), np.uint8)
-    raw[:, 1:] = rgba.reshape(h, w * 4)
+    raw = np.zeros((h, w * n + 1), np.uint8)
+    raw[:, 1:] = rgba.reshape(h, w * n)
 
     def chunk(t, c):
         return struct.pack(">I", len(c)) + t + c + struct.pack(">I", zlib.crc32(t + c) & 0xFFFFFFFF)
-    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 6, 0, 0, 0)) +
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 6 if n == 4 else 2, 0, 0, 0)) +
             chunk(b"IDAT", zlib.compress(raw.tobytes(), 6)) + chunk(b"IEND", b""))

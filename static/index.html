@@ -142,6 +142,7 @@ canvas{position:absolute;inset:0;width:100%;height:100%;display:block;outline:no
       <button class="btn" id="pbtn">Parts</button>
       <button class="btn" id="obj">Export OBJ</button>
       <button class="btn" id="glb">Export GLB</button>
+      <button class="btn" id="fbx" title="Meshes, embedded textures and the skeleton (not skinned)">Export FBX</button>
     </span>
     <span id="bartex" style="display:none">
       <select id="texbg" title="Background behind transparent pixels">
@@ -671,6 +672,7 @@ function exportURL(kind){
 }
 $("obj").onclick=()=>{ if(S.cur) location.href=exportURL("obj.zip"); };
 $("glb").onclick=()=>{ if(S.cur) location.href=exportURL("glb"); };
+$("fbx").onclick=()=>{ if(S.cur) location.href=exportURL("fbx"); };
 $("reset").onclick=()=>{ S.cam.yaw=CAM0.yaw; S.cam.pitch=CAM0.pitch; frame(); };
 
 /* culling: GreedXplorer's four modes and Alt+C order. GreedXplorer's CW hides back faces in its view. */

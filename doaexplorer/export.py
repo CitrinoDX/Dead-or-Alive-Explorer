@@ -1,8 +1,9 @@
-"""OBJ (+MTL+PNG, zipped), GLB and texture-zip export of a Scene.
+"""OBJ (+MTL+PNG, zipped), GLB, FBX and texture-zip export of a Scene.
 Geometry goes through basis * part matrix - exactly what the viewer shows. Winding is kept as stored
 (materials are double-sided), matching the original DOA2U exporter."""
-import io, json, struct, zipfile
+import collections, io, json, struct, zipfile
 import numpy as np
+from . import fbx
 
 
 def flatten(scene, part_ids):
@@ -161,3 +162,153 @@ def export_glb(scene, part_ids, name):
     total = 12 + 8 + len(js) + 8 + len(bin_)
     return (struct.pack("<III", 0x46546C67, 2, total) + struct.pack("<II", len(js), 0x4E4F534A) + js +
             struct.pack("<II", len(bin_), 0x004E4942) + bytes(bin_))
+
+
+def export_fbx(scene, part_ids, name):
+    """Binary FBX: one mesh per part in world space (as in the GLB), materials with their textures embedded, and the
+    skeleton as an unskinned LimbNode tree under a "skeleton" null (bones of hidden parts are left out, as in the view).
+    Metres, with UnitScaleFactor 100 so Blender and Unity import at the GLB's size."""
+    doc = fbx.Document("Dead or Alive Explorer")
+
+    def model(label, sub, parent, t=(0.0, 0.0, 0.0)):
+        mid, m = doc.add("Model", label, sub)
+        m.add("Version", 232)
+        m.add("Properties70").P("Lcl Translation", "Lcl Translation", "", "A", *[float(v) for v in t])
+        m.add("MultiLayer", 0)
+        m.add("MultiTake", 0)
+        m.add("Shading", True)
+        m.add("Culling", "CullingOff")
+        doc.link(mid, parent)
+        return mid
+
+    def attribute(mid, label, sub, flags):
+        aid, a = doc.add("NodeAttribute", label, sub)
+        a.add("Properties70")
+        a.add("TypeFlags", flags)
+        doc.link(aid, mid)
+
+    tex_ids = {}
+
+    def texture(t, alpha):
+        """importers take alpha from any RGBA diffuse texture, so opaque materials get an RGB copy"""
+        if (t, alpha) not in tex_ids:
+            label = "tex%03d%s" % (t, "_alpha" if alpha else "")
+            fn = "%s_%s.png" % (name, label)
+            vid, v = doc.add("Video", label, "Clip")
+            v.add("Type", "Clip")
+            v.add("Properties70").P("Path", "KString", "XRefUrl", "", fn)
+            v.add("UseMipMap", 0)
+            v.add("Filename", fn)
+            v.add("RelativeFilename", fn)
+            v.add("Content", scene.texture_png(t, opaque=not alpha))
+            tid, x = doc.add("Texture", label, "")
+            x.add("Type", "TextureVideoClip")
+            x.add("Version", 202)
+            x.add("TextureName", label + "\x00\x01Texture")
+            x.add("Properties70").P("UseMaterial", "bool", "", "", 1)
+            x.add("Media", label + "\x00\x01Video")
+            x.add("FileName", fn)
+            x.add("RelativeFilename", fn)
+            x.add("ModelUVTranslation", 0.0, 0.0)
+            x.add("ModelUVScaling", 1.0, 1.0)
+            x.add("Texture_Alpha_Source", "None")
+            x.add("Cropping", 0, 0, 0, 0)
+            doc.link(vid, tid)
+            tex_ids[t, alpha] = tid
+        return tex_ids[t, alpha]
+
+    mat_ids = {}
+
+    def material(k):
+        if k not in mat_ids:
+            mid, m = doc.add("Material", mat_name(k), "")
+            m.add("Version", 102)
+            m.add("ShadingModel", "phong")
+            m.add("MultiLayer", 0)
+            p = m.add("Properties70")
+            p.P("DiffuseColor", "Color", "", "A", 1.0, 1.0, 1.0)
+            p.P("SpecularFactor", "Number", "", "A", 0.0)
+            p.P("Shininess", "Number", "", "A", 0.0)
+            p.P("TransparencyFactor", "Number", "", "A", 0.0)
+            if k[0] >= 0:
+                tid = texture(k[0], k[1] != "opaque")
+                doc.link(tid, mid, "DiffuseColor")
+                if k[1] != "opaque":
+                    doc.link(tid, mid, "TransparentColor")
+            mat_ids[k] = mid
+        return mat_ids[k]
+
+    def layer(g, kind, mapping, ref, **arrays):
+        e = g.add(kind, 0)
+        e.add("Version", 101)
+        e.add("Name", "UVMap" if kind == "LayerElementUV" else "")
+        e.add("MappingInformationType", mapping)
+        e.add("ReferenceInformationType", ref)
+        for k, a in arrays.items():
+            e.add(k, a)
+
+    for f in flatten(scene, part_ids):
+        subs = [s for s in f["subs"] if len(s["tris"])]
+        if not subs:
+            continue
+        keys = list(dict.fromkeys(mat_key(s) for s in subs))
+        tris = np.concatenate([s["tris"] for s in subs]).astype(np.int32)
+        corners = tris.reshape(-1)
+        pvi = tris.copy()
+        pvi[:, 2] = ~pvi[:, 2]           # a negative index closes each polygon
+        uv = np.asarray(f["uv"], np.float64).copy()
+        uv[:, 1] = 1.0 - uv[:, 1]
+        gid, g = doc.add("Geometry", f["name"], "Mesh")
+        g.add("Properties70")
+        g.add("GeometryVersion", 124)
+        g.add("Vertices", f["pos"].astype(np.float64))
+        g.add("PolygonVertexIndex", pvi)
+        layer(g, "LayerElementNormal", "ByVertice", "Direct", Normals=f["nrm"].astype(np.float64))
+        layer(g, "LayerElementUV", "ByPolygonVertex", "IndexToDirect", UV=uv, UVIndex=corners)
+        if len(keys) == 1:
+            layer(g, "LayerElementMaterial", "AllSame", "IndexToDirect", Materials=np.zeros(1, np.int32))
+        else:
+            per_tri = np.concatenate([np.full(len(s["tris"]), keys.index(mat_key(s)), np.int32) for s in subs])
+            layer(g, "LayerElementMaterial", "ByPolygon", "IndexToDirect", Materials=per_tri)
+        lay = g.add("Layer", 0)
+        lay.add("Version", 100)
+        for kind in ("LayerElementNormal", "LayerElementUV", "LayerElementMaterial"):
+            e = lay.add("LayerElement")
+            e.add("Type", kind)
+            e.add("TypedIndex", 0)
+        mid = model(f["name"], "Mesh", 0)
+        doc.link(gid, mid)
+        for k in keys:                   # connection order = material slot order
+            doc.link(material(k), mid)
+
+    on = set(part_ids)
+    keep = [b["part"] is None or b["part"] in on for b in scene.bones]
+    if any(keep):
+        B = np.array(scene.basis["m"], float).reshape(4, 4).T
+        world = [(B @ np.append(np.asarray(b["pos"], float), 1.0))[:3] for b in scene.bones]
+
+        def kept_parent(i):
+            p, seen = scene.bones[i]["parent"], set()
+            while 0 <= p < len(keep) and not keep[p] and p not in seen:
+                seen.add(p)
+                p = scene.bones[p]["parent"]
+            return p if 0 <= p < len(keep) and keep[p] else -1
+
+        kids = collections.defaultdict(list)
+        for i in range(len(keep)):
+            if keep[i]:
+                kids[kept_parent(i)].append(i)
+        skel = model("skeleton", "Null", 0)
+        attribute(skel, "skeleton", "Null", "Null")
+        todo = [(i, skel, np.zeros(3)) for i in reversed(kids[-1])]
+        done = set()
+        while todo:
+            i, parent, at = todo.pop()
+            if i in done:
+                continue
+            done.add(i)
+            label = scene.bones[i]["name"]
+            mid = model(label, "LimbNode", parent, world[i] - at)
+            attribute(mid, label, "LimbNode", "Skeleton")
+            todo.extend((c, mid, world[i]) for c in reversed(kids[i]))
+    return doc.to_bytes()

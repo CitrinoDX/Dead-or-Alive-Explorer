@@ -245,7 +245,7 @@ def make_handler(app):
                     return self.send(200, data, "application/zip", disposition("%s_%s_textures.zip" % (key, sid)))
                 if cmd == "export" and len(parts) == 4:
                     fn = parts[3]
-                    ext = ".obj.zip" if fn.endswith(".obj.zip") else ".glb" if fn.endswith(".glb") else None
+                    ext = next((x for x in (".obj.zip", ".glb", ".fbx") if fn.endswith(x)), None)
                     if not ext:
                         return self.send(404, "unknown export type", "text/plain")
                     sid = fn[:-len(ext)]
@@ -257,6 +257,8 @@ def make_handler(app):
                     base = "%s_%s" % (key, export.safe(sid))
                     if ext == ".glb":
                         return self.send(200, export.export_glb(sc, ids, base), "model/gltf-binary", disposition(base + ".glb"))
+                    if ext == ".fbx":
+                        return self.send(200, export.export_fbx(sc, ids, base), "application/octet-stream", disposition(base + ".fbx"))
                     return self.send(200, export.export_obj_zip(sc, ids, base), "application/zip", disposition(base + "_obj.zip"))
                 return self.send(404, "not found", "text/plain")
             except KeyError as e:
