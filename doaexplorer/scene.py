@@ -202,6 +202,18 @@ def orient_to_normals(pos, nrm, tris):
     return out
 
 
+def vertex_normals(pos, tris):
+    """Area-weighted smooth normals for geometry stored without them (pre-lit meshes), so the viewer can light it.
+    Vertices whose faces cancel out get +Y."""
+    p = np.asarray(pos, np.float64)
+    fn = np.cross(p[tris[:, 1]] - p[tris[:, 0]], p[tris[:, 2]] - p[tris[:, 0]])
+    n = np.zeros_like(p)
+    for k in range(3):
+        np.add.at(n, tris[:, k], fn)
+    ln = np.linalg.norm(n, axis=1, keepdims=True)
+    return np.where(ln > 1e-12, n / np.maximum(ln, 1e-12), [0.0, 1.0, 0.0]).astype(np.float32)
+
+
 def strip_to_tris(seg, restart=None):
     """Triangle strip -> (n,3) triangles with D3D winding; parity restarts after each restart index.
     Degenerate triangles are dropped (they still advance the parity)."""

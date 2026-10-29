@@ -3,7 +3,8 @@ used by DOA2U (layout from the DOAU Blender exporter, verified against decrypted
 import struct
 import numpy as np
 from .. import texture
-from ..scene import Scene, merge_geometry, strip_to_tris, orient_to_normals, CULL_NONE, CULL_BACK, CULL_FRONT
+from ..scene import (Scene, merge_geometry, strip_to_tris, orient_to_normals, vertex_normals,
+                     CULL_NONE, CULL_BACK, CULL_FRONT)
 from . import xbox_crypt
 
 
@@ -32,6 +33,9 @@ class Xpr:
 
 
 SLOT_STRIDE = (0x20, 0x18, 0x28, 0x20)
+# compact OBJ: slot 0 pos(3) normal(3) uv(2), slot 2 pos(3) diffuse uv(2) (DOA3 stages' pre-lit geometry, no normals);
+# slots 1 and 3 never occur
+COMPACT_STRIDE = {0: 0x20, 2: 0x18}
 
 
 def _texture(i, block2, off, fl, size):
@@ -108,12 +112,14 @@ def _parse_mdl(x, d, u):
         end = offs[oi + 1] if oi + 1 < len(offs) else x.mdl + x.mdlsize
         ob = Obj()
         ob.index = oi
-        nw = u(o + 4)                # blend weights per vertex (DOA2U: 0/1, DOAX: up to 3), stored right after the position
+        compact = u(o + 8) != 4      # DOA3, DOA1U, DOA2U 'A#': slots at +0x10, bound at +0x50, materials at +0x60
+        # blend weights per vertex (DOA2U: 0/1, DOAX: up to 3), stored right after the position. The compact layout
+        # has none: its +4 is 0 in characters, 1 in DOA3 stages and 2 in DOA3 effects.
+        nw = 0 if compact else u(o + 4)
         nw = nw if nw <= 4 else 0
         ob.weighted = nw > 0
         ob.weights = {}
         ob.materials = []
-        compact = u(o + 8) != 4      # the 'A#' costumes: slots at +0x10, bound at +0x50, materials at +0x60
         if compact:
             x.compact = True
             ob.slots = [struct.unpack_from("<4I", d, o + 0x10 + 16 * s) for s in range(4)]
@@ -123,17 +129,18 @@ def _parse_mdl(x, d, u):
             ob.bound = struct.unpack_from("<4f", d, o + 16)
         ob.positions, ob.normals, ob.uvs, ob.indices = {}, {}, {}, {}
         for s, (vn, vo, inn, io_) in enumerate(ob.slots):
-            if vn == 0:
+            if vn == 0 or (compact and s not in COMPACT_STRIDE):
                 continue
             # every slot: pos(3) weights(nw) then  0: normal(3) uv(2) | 1: diffuse uv(2) |
             # 2: normal(3) uv0(2) uv(2) | 3: diffuse uv0(2) uv(2)   (the last uv pair is the main mapping)
-            stride = SLOT_STRIDE[s] + 4 * nw
+            stride = COMPACT_STRIDE[s] if compact else SLOT_STRIDE[s] + 4 * nw
             raw = np.frombuffer(d, dtype=np.uint8, count=vn * stride, offset=vo).reshape(vn, stride)
             f = np.ascontiguousarray(raw).view("<f4").reshape(vn, -1)
             ob.positions[s] = f[:, 0:3].copy()
             if nw:
                 ob.weights[s] = f[:, 3:3 + nw].copy()
-            ob.normals[s] = f[:, 3 + nw:6 + nw].copy() if s in (0, 2) else None
+            lit = s == 0 if compact else s in (0, 2)
+            ob.normals[s] = f[:, 3 + nw:6 + nw].copy() if lit else None
             ob.uvs[s] = f[:, -2:].copy()
             ob.indices[s] = np.frombuffer(d, dtype="<u2", count=inn, offset=io_).astype(np.int64)
         if compact:
@@ -168,43 +175,43 @@ def _parse_mdl(x, d, u):
 
 
 def _parse_compact_materials(ob, d, u, q, end):
-    """Compact OBJ materials (inferred from DOA2U zaca0 / DOA1U jan00; triangle counts match the records exactly):
-    marker, ?, 0, flags | bound 4f | ?, diffuse/ambient/specular/emissive 4f each | power | ntex | ? |
-    ntex x 16-byte texture refs (unit, type, flags, texture id) | strip records (slot, (count+2)*32, index start,
-    triangle count) | next material, which is only dword-aligned."""
-    cur = None
-    while q + 16 <= end:
-        mid = u(q)
-        if mid in (0x80000000, 0x80000001):
-            ntex = u(q + 0x68)
-            if ntex > 16:
-                break
-            cur = Material()
-            cur.matid = mid
-            cur.transparent = bool(mid & 1)
-            cur.nrm_mode = u(q + 0x0C)   # the field GreedXplorer reads for culling, as in the regular layout
-            cur.bound = struct.unpack_from("<4f", d, q + 0x10)
-            f = struct.unpack_from("<17f", d, q + 0x24)
-            cur.diffuse, cur.ambient, cur.specular, cur.emissive = f[0:4], f[4:8], f[8:12], f[12:16]
-            cur.power = f[16]
-            cur.textures = [struct.unpack_from("<4I", d, q + 0x70 + 16 * t) for t in range(ntex)]
-            cur.tex_field = 3    # refs are (unit, type, flags, texture id)
-            cur.slot, cur.ind_start, cur.ind_tris = 0, 0, 0
-            cur.strips = []
-            ob.materials.append(cur)
-            q += 0x70 + 16 * ntex
-            continue
-        slot, nbytes, start, count = struct.unpack_from("<4I", d, q)
-        if cur is not None and slot <= 3 and 0 < count < 0x10000 and nbytes == (count + 2) * 32:
-            cur.slot = slot
-            cur.strips.append((start, count))
-            q += 16
-            continue
-        # materials are dword- not 16-byte-aligned: look a few dwords ahead for the next marker
-        nxt = next((q + k for k in range(4, 16, 4) if q + k + 4 <= end and u(q + k) in (0x80000000, 0x80000001)), None)
-        if nxt is None:
+    """Compact OBJ materials (DOA3, DOA1U, DOA2U 'A#'; checked on every DOA3 file, where each texture id then lands in
+    the file's texture list and all but one texture of 4741 is used):
+    marker, size in dwords, blend, flags | bound 4f | ?, diffuse/ambient/specular/emissive 4f each | power | ntex |
+    ntex x 16-byte texture stages (texture id, unit, type, flags), as in the regular layout | strip count | vertex slot |
+    strips (bytes, index start, triangle count, cull). Stage id 0x888 is a stage without a texture (the combine step
+    of DOA3's three-stage reflective materials: base, reflection map, 0x888). A strip's bytes are (count + 2) x the
+    slot's vertex stride. Its cull is 0 unless the material flags have bit 0 set, then mostly D3DCULL_CW / CCW
+    (0x900 / 0x901), which match the strip's winding against the stored normals 99%; the viewer orients by the
+    normals instead and draws these materials double-sided, as GreedXplorer does. The index data follows the last
+    material, after a 0x12345678 marker.
+    Alpha blending is bit 0 of the dword at +0x08: set on every material whose texture has alpha (DOA3, DOA1U and
+    DOA2U alike). The marker's bit 0, the flag in the regular layout, is never set in DOA1U / DOA2U and in DOA3 sits
+    on opaque textures."""
+    while q + 0x74 <= end:
+        mid, size = u(q), 4 * u(q + 4)
+        ntex = u(q + 0x68)
+        if mid not in (0x80000000, 0x80000001) or ntex > 16 or size < 0x74 or q + size > end:
             break
-        q = nxt
+        r = q + 0x6C + 16 * ntex
+        nrec, slot = u(r), u(r + 4)
+        if r + 8 + 16 * nrec > q + size:
+            break
+        mt = Material()
+        mt.matid = mid
+        mt.transparent = bool(u(q + 8) & 1)
+        mt.nrm_mode = u(q + 0x0C)   # the field GreedXplorer reads for culling, as in the regular layout
+        mt.bound = struct.unpack_from("<4f", d, q + 0x10)
+        f = struct.unpack_from("<17f", d, q + 0x24)
+        mt.diffuse, mt.ambient, mt.specular, mt.emissive = f[0:4], f[4:8], f[8:12], f[12:16]
+        mt.power = f[16]
+        mt.textures = [struct.unpack_from("<4I", d, q + 0x6C + 16 * t) for t in range(ntex)]
+        mt.tex_field = 0
+        mt.slot, mt.ind_start, mt.ind_tris = slot, 0, 0
+        mt.strips = [(start, count) for _, start, count, _ in
+                     (struct.unpack_from("<4I", d, r + 8 + 16 * k) for k in range(nrec)) if 0 < count < 0x10000]
+        ob.materials.append(mt)
+        q += size
 
 
 def material_cull(flags, compact=False):
@@ -243,11 +250,15 @@ def obj_geometry(ob, ntex):
             tex = -1
         # bit 24 of a texture ref's last dword: the texture is a reflection map, sphere-mapped from the normals rather
         # than laid out by the UVs (chrome/sheen images: aya18's helmet dome, Zack's metal; the second, kind-4 stage of
-        # two-stage materials). The compact format's refs are laid out differently.
-        env = mt.strips is None and bool(mt.textures) and bool(mt.textures[0][3] & 0x1000000)
+        # two-stage materials). Same bit in the compact format; its pre-lit slot has no normals to map from.
         nrm = ob.normals.get(s)
+        env = bool(mt.textures) and bool(mt.textures[0][3] & 0x1000000) and (mt.strips is None or nrm is not None)
         cull = material_cull(mt.nrm_mode, compact=mt.strips is not None)
-        chunks.append(dict(pos=ob.positions[s][used], nrm=None if nrm is None else nrm[used], uv=ob.uvs[s][used],
+        if nrm is not None:
+            nrm = nrm[used]
+        elif mt.strips is not None:   # DOA3's pre-lit stage geometry: light it with normals from its own triangles
+            nrm = vertex_normals(ob.positions[s][used], inv.reshape(-1, 3))
+        chunks.append(dict(pos=ob.positions[s][used], nrm=nrm, uv=ob.uvs[s][used],
                            tris=inv.reshape(-1, 3),
                            sub=dict(tex=int(tex), transparent=mt.transparent, cull=cull, env=env,
                                     diffuse=[float(v) for v in mt.diffuse])))
