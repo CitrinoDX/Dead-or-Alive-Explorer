@@ -232,7 +232,10 @@ def make_handler(app):
                     return self.send(404, "unknown game %s" % key, "text/plain")
                 game = app.games[key]
                 if cmd == "library":
-                    return self.json(dict(key=key, title=game.title, folder=game.folder, groups=game.tree()))
+                    return self.json(dict(key=key, title=game.title, folder=game.folder, groups=game.tree(),
+                                          dress=hasattr(game, "dress")))
+                if cmd == "dress" and hasattr(game, "dress"):
+                    return self.json(game.dress())
                 if cmd == "model" and len(parts) == 4:
                     return self.json(app.scene(key, parts[3]).payload())
                 if cmd == "tex" and len(parts) == 5:
@@ -254,7 +257,7 @@ def make_handler(app):
                         ids = [int(v) for v in q["parts"][0].split(",") if v != ""]
                     else:
                         ids = [i for i, p in enumerate(sc.parts) if p["visible"]]
-                    base = "%s_%s" % (key, export.safe(sid))
+                    base = "%s_%s" % (key, export.safe(sc.export_name or sid))
                     if ext == ".glb":
                         return self.send(200, export.export_glb(sc, ids, base), "model/gltf-binary", disposition(base + ".glb"))
                     if ext == ".fbx":

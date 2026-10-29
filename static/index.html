@@ -51,10 +51,25 @@ canvas{position:absolute;inset:0;width:100%;height:100%;display:block;outline:no
 #title{font-weight:600}
 #info{position:absolute;left:12px;bottom:10px;color:var(--dim);font-size:12px;max-width:60%;text-shadow:0 1px 2px var(--bg);z-index:2}
 #info .warn{color:var(--warn)}
-#parts{position:absolute;right:12px;top:52px;bottom:12px;width:250px;background:color-mix(in srgb,var(--panel) 92%,transparent);backdrop-filter:blur(6px);border:1px solid var(--line);border-radius:8px;display:flex;flex-direction:column;min-height:0;z-index:2}
+/* right column: the character picker (DOAX2) above the parts / bones panel; the empty space below lets the view drag */
+#right{position:absolute;right:12px;top:52px;bottom:12px;width:250px;display:flex;flex-direction:column;gap:8px;min-height:0;z-index:2;pointer-events:none}
+#right>*{pointer-events:auto}
+.panel{background:color-mix(in srgb,var(--panel) 92%,transparent);backdrop-filter:blur(6px);border:1px solid var(--line);border-radius:8px;display:flex;flex-direction:column;min-height:0}
+#parts{flex:1}
 #parts.hide{display:none}
-#parts h2{font-size:12px;margin:0;padding:8px 10px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center}
-#parts h2 a{color:var(--accent);cursor:pointer}
+#parts.min{flex:none}
+#parts.min #plist,#parts.min #blist,#parts.min #partlinks{display:none!important}
+#parts.min h2{border-bottom:0}
+.panel h2{font-size:12px;margin:0;padding:8px 10px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;gap:8px}
+.panel h2 a{color:var(--accent);cursor:pointer}
+#pmin{display:inline-block;width:12px;margin-right:4px}
+.dform{padding:8px 10px 10px;display:flex;flex-direction:column;gap:7px}
+.dform label{display:flex;flex-direction:column;gap:3px;font-size:11px;color:var(--dim)}
+.dform select{width:100%;font-size:13px;padding:4px 6px}
+.dform select:disabled{opacity:.5}
+.dform option,.dform optgroup{background:var(--panel);color:var(--text)}
+#dhint{margin:0;font-size:11px}
+#dstatus{font-weight:400;color:var(--dim)}
 #plist,#blist{overflow:auto;padding:4px 6px 8px;flex:1}
 .grp{margin-top:6px;color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.05em;display:flex;justify-content:space-between;padding:2px 4px}
 .grp a{color:var(--accent);cursor:pointer;text-transform:none;letter-spacing:0;margin-left:8px}
@@ -154,7 +169,18 @@ canvas{position:absolute;inset:0;width:100%;height:100%;display:block;outline:no
     <button class="btn" id="prev" title="Previous entry (←)">◀</button>
     <button class="btn" id="next" title="Next entry (→)">▶</button>
   </div>
-  <div id="parts"><h2><span class="tabs"><a id="tabparts" class="on">Parts</a><span id="tabsep"> · </span><a id="tabbones" title="The skeleton's bones (B shows the skeleton)">Bones</a></span><span id="partlinks"><a id="pall">all</a> · <a id="pnone">none</a></span></h2><div id="plist"></div><div id="blist"></div></div>
+  <div id="right">
+    <div id="dress" class="panel" style="display:none">
+      <h2><span>Character</span><span id="dstatus"></span></h2>
+      <div class="dform">
+        <label>Character<select id="dgirl" aria-label="Character"></select></label>
+        <label>Head<select id="dhead" aria-label="Head" disabled></select></label>
+        <label>Swimsuit<select id="dsuit" aria-label="Swimsuit" disabled></select></label>
+        <p class="dim" id="dhint">Her body, the head and the swimsuit load as one model; the export buttons save it. ◀ ▶ step through the swimsuits.</p>
+      </div>
+    </div>
+    <div id="parts" class="panel"><h2><span class="tabs"><a id="pmin" title="Minimise the parts list">▾</a><a id="tabparts" class="on">Parts</a><span id="tabsep"> · </span><a id="tabbones" title="The skeleton's bones (B shows the skeleton)">Bones</a></span><span id="partlinks"><a id="pall">all</a> · <a id="pnone">none</a></span></h2><div id="plist"></div><div id="blist"></div></div>
+  </div>
   <div id="bonetip"></div>
   <div id="info"></div>
   <div id="msg">Pick a game and an entry on the left</div>
@@ -277,15 +303,15 @@ function freeModel(){
 }
 
 async function loadModel(id){
-  const game=S.game;
+  const game=S.game, tok=S.loadTok=(S.loadTok||0)+1;   // only the latest request lands (picker changes come quickly)
   $("msg").textContent="Loading "+id+"…"; $("msg").style.display="grid";
   let data;
   try{
     const r = await fetch("/api/model/"+game+"/"+enc(id));
     if(!r.ok) throw new Error(await r.text());
     data = await r.json();
-  }catch(e){ $("msg").textContent="Could not load "+id+": "+e.message; return; }
-  if(game!==S.game) return;
+  }catch(e){ if(tok===S.loadTok) $("msg").textContent="Could not load "+id+": "+e.message; return; }
+  if(game!==S.game||tok!==S.loadTok) return;
   freeModel();
   data.meshes = data.meshes.map(o=>{
     if(!o) return null;
@@ -311,6 +337,7 @@ async function loadModel(id){
   document.querySelectorAll(".item").forEach(e=>e.classList.toggle("sel",e.dataset.id===id));
   const sel=document.querySelector(".item.sel"); if(sel) sel.scrollIntoView({block:"nearest"});
   history.replaceState(null,"","#"+game+"/"+enc(id));
+  syncDress(id);
   if(!S.parts.length && data.textures.length) setView("tex");
   else if(S.view==="tex" && !S.texSticky && S.parts.length) setView("3d");
 }
@@ -622,7 +649,7 @@ function setView(v){
   $("viewbtn").textContent=v==="tex"?"3D view":"Textures";
   $("bar3d").style.display=v==="3d"?"contents":"none";
   $("bartex").style.display=v==="tex"?"contents":"none";
-  $("parts").style.visibility=v==="3d"?"":"hidden";
+  $("right").style.visibility=v==="3d"?"":"hidden";
 }
 function bgClass(){ return "bg-"+$("texbg").value; }
 function buildTexUI(){
@@ -690,7 +717,75 @@ $("viewbtn").onclick=()=>{ S.texSticky=S.view!=="tex"; setView(S.view==="tex"?"3
 $("pbtn").onclick=()=>$("parts").classList.toggle("hide");
 $("pall").onclick=()=>{S.parts.forEach(p=>p.on=true);buildPartsUI();};
 $("pnone").onclick=()=>{S.parts.forEach(p=>p.on=false);buildPartsUI();};
-$("tabparts").onclick=()=>setPanelTab("parts"); $("tabbones").onclick=()=>setPanelTab("bones");
+$("tabparts").onclick=()=>{ setPanelTab("parts"); setPartsMin(false); };
+$("tabbones").onclick=()=>{ setPanelTab("bones"); setPartsMin(false); };
+$("pmin").onclick=()=>setPartsMin(!S.pmin);
+// the toolbar wraps in narrow windows and with long titles: the right column starts below it
+new ResizeObserver(()=>{ const b=document.querySelector(".bar"); $("right").style.top=(b.offsetTop+b.offsetHeight+8)+"px"; })
+  .observe(document.querySelector(".bar"));
+// the parts / bones list can shrink to its header; DOAX2 starts that way to leave room for the character picker
+function setPartsMin(on, keep){
+  S.pmin=!!on; $("parts").classList.toggle("min",S.pmin);
+  $("pmin").textContent=S.pmin?"▸":"▾"; $("pmin").title=S.pmin?"Show the parts list":"Minimise the parts list";
+  if(!keep) try{ localStorage.setItem("doaexplorer.partsmin."+S.game, S.pmin?"1":"0"); }catch(e){}
+}
+function initPartsMin(dress){
+  let v=null; try{ v=localStorage.getItem("doaexplorer.partsmin."+S.game); }catch(e){}
+  setPartsMin(v===null?dress:v==="1", true);
+}
+
+/* ---------------- character picker (DOAX2): her body, a head and a swimsuit as one model ---------------- */
+const OUTFIT="outfit:", D={data:null};
+const girlOf=code=>D.data&&D.data.girls.find(g=>g.code===code);
+const headName=l=>l.replace(/^Head: /,"").replace(/^Head/,"Standard");
+async function loadDress(key, on){
+  D.data=null; $("dress").style.display=on?"":"none";
+  if(!on) return;
+  for(const id of ["dgirl","dhead","dsuit"]){ $(id).innerHTML=""; $(id).disabled=true; }
+  $("dstatus").textContent="reading the swimsuits…";
+  let j;
+  try{ const r=await fetch("/api/dress/"+key); if(!r.ok) throw new Error(await r.text()); j=await r.json(); }
+  catch(e){ if(S.game===key) $("dstatus").textContent="not available"; return; }
+  if(S.game!==key) return;
+  D.data=j; $("dstatus").textContent="";
+  $("dgirl").innerHTML='<option value="">Pick a character…</option>'+j.girls.map(g=>'<option value="'+esc(g.code)+'">'+esc(g.name)+'</option>').join("");
+  $("dgirl").disabled=false;
+  if(S.cur) syncDress(S.cur);
+}
+function fillDress(code){
+  const g=girlOf(code), H=$("dhead"), W=$("dsuit");
+  H.innerHTML=W.innerHTML=""; H.disabled=W.disabled=!g;
+  if(!g) return;
+  const opt=(v,l)=>'<option value="'+esc(v)+'">'+esc(l)+'</option>', grp=(l,s)=>s?'<optgroup label="'+esc(l)+'">'+s+'</optgroup>':"";
+  const others=D.data.girls.filter(o=>o!==g);
+  // her own heads and swimsuits first; any other girl's head is a head swap, any swimsuit with a fit for her body type fits
+  H.innerHTML=grp(g.name+"'s heads",g.heads.map(h=>opt(h.id,headName(h.label))).join(""))+
+    others.map(o=>grp(o.name+"'s heads (head swap)",o.heads.map(h=>opt(h.id,headName(h.label))).join(""))).join("");
+  W.innerHTML=[g,...others].map(o=>grp(o.name+"'s swimsuits",g.suits.filter(s=>s.owner===o.code).map(s=>opt(s.id,s.label)).join(""))).join("")+
+    grp("None",opt("","No swimsuit"));
+  const own=g.suits.find(s=>s.owner===g.code)||g.suits[0];
+  H.value=g.heads.length?g.heads[0].id:H.value; W.value=own?own.id:"";
+}
+function outfitList(){   // ◀ ▶ step through the swimsuits with the same girl and head
+  const g=girlOf($("dgirl").value); if(!g) return [];
+  const pre=OUTFIT+g.code+"+"+$("dhead").value+"+";
+  return [...$("dsuit").options].map(o=>pre+o.value);
+}
+function wearOutfit(){
+  if(!girlOf($("dgirl").value)) return;
+  S.curList=outfitList();
+  loadModel(OUTFIT+$("dgirl").value+"+"+$("dhead").value+"+"+$("dsuit").value);
+}
+function syncDress(id){
+  if(!D.data||!id||!id.startsWith(OUTFIT)) return;
+  const [code,head,suit]=id.slice(OUTFIT.length).split("+");
+  if($("dgirl").value!==code){ $("dgirl").value=code; fillDress(code); }
+  $("dhead").value=head; $("dsuit").value=suit;
+  if(!S.curList.includes(id)) S.curList=outfitList();
+}
+$("dgirl").onchange=e=>{ fillDress(e.target.value); wearOutfit(); e.target.blur(); };
+$("dhead").onchange=e=>{ wearOutfit(); e.target.blur(); };
+$("dsuit").onchange=e=>{ wearOutfit(); e.target.blur(); };
 $("skel").onchange=e=>{ setSkel(+e.target.value); e.target.blur(); };
 buildBonesUI();
 $("prev").onclick=()=>step(-1); $("next").onclick=()=>step(1);
@@ -708,6 +803,7 @@ async function selectGame(key, openId){
   $("msg").textContent="Loading library…"; $("msg").style.display="grid"; $("texgrid").innerHTML=""; setView("3d");
   const lib=await (await fetch("/api/library/"+key)).json();
   if(S.game!==key) return;
+  initPartsMin(!!lib.dress); loadDress(key, !!lib.dress);
   const T=$("tree"); T.innerHTML="";
   for(const grp of lib.groups){
     const d=document.createElement("details");
@@ -722,8 +818,11 @@ async function selectGame(key, openId){
     }
     d.appendChild(box); T.appendChild(d);
   }
-  $("search").value=""; $("msg").textContent="Pick an entry on the left";
-  if(openId){ const el=[...T.querySelectorAll(".item")].find(x=>x.dataset.id===openId); if(el){ el.closest("details").open=true; el.click(); } }
+  $("search").value=""; $("msg").textContent=lib.dress?"Pick an entry on the left, or a character on the right":"Pick an entry on the left";
+  if(openId){
+    const el=[...T.querySelectorAll(".item")].find(x=>x.dataset.id===openId);
+    if(el){ el.closest("details").open=true; el.click(); } else if(openId.startsWith(OUTFIT)) loadModel(openId);
+  }
 }
 $("search").oninput=e=>{
   const q=e.target.value.trim().toLowerCase();

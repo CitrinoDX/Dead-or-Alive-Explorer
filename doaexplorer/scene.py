@@ -53,6 +53,7 @@ class Scene:
         self.note = ""
         self.basis = XBOX_BASIS
         self.info = {}
+        self.export_name = None   # export file name in place of the entry id (composed scenes)
         self._decoders = []
         self._png = {}
         self._alpha = {}
@@ -67,26 +68,45 @@ class Scene:
         self.parts.append(dict(name=name, group=group, mesh=mesh, m=np.eye(4) if m is None else np.asarray(m, float),
                                visible=visible))
 
-    def merge(self, other, prefix, place):
-        """Append another scene's textures, meshes, parts and bones (names prefixed). place(part) -> (group, visible, matrix).
+    def merge(self, other, prefix, place, bones=True):
+        """Append another scene's textures, meshes, parts and bones (names prefixed). place(part) -> (group, visible, matrix),
+        or None to leave the part out, with its mesh and the bones tied to it. bones=False leaves the skeleton out.
         Bones move with the part they carry."""
-        toff, moff, poff, boff = len(self.textures), len(self.meshes), len(self.parts), len(self.bones)
+        toff, moff = len(self.textures), len(self.meshes)
         for k, t in enumerate(other.textures):
             self.add_texture(t["w"], t["h"], t["fmt"], other._decoders[k], name=prefix + t["name"])
-        for g in other.meshes:
-            if g is not None:
+        placed = [place(p) for p in other.parts]
+        left = {p["mesh"] for p, pl in zip(other.parts, placed) if pl is None}
+        left -= {p["mesh"] for p, pl in zip(other.parts, placed) if pl is not None}
+        for i, g in enumerate(other.meshes):
+            if g is not None and i not in left:
                 g = dict(g, subs=[dict(s, tex=s["tex"] + toff if s["tex"] >= 0 else s["tex"]) for s in g["subs"]])
-            self.meshes.append(g)
-        moved = []
-        for p in other.parts:
-            group, visible, m = place(p)
-            moved.append(np.asarray(m, float) @ np.linalg.inv(p["m"]))
+            self.meshes.append(None if i in left else g)
+        moved, new_part = {}, {}
+        for k, (p, pl) in enumerate(zip(other.parts, placed)):
+            if pl is None:
+                continue
+            group, visible, m = pl
+            moved[k], new_part[k] = np.asarray(m, float) @ np.linalg.inv(p["m"]), len(self.parts)
             self.add_part(prefix + p["name"], moff + p["mesh"], m, group, visible)
-        for b in other.bones:
-            k = b["part"]
-            pos = b["pos"] if k is None else (moved[k] @ np.append(b["pos"], 1.0))[:3]
-            self.bones.append(dict(name=prefix + b["name"], parent=b["parent"] + boff if b["parent"] >= 0 else -1,
-                                   pos=pos, part=None if k is None else k + poff))
+        if not bones:
+            return
+        keep = [b["part"] is None or b["part"] in new_part for b in other.bones]
+        new_bone = {i: len(self.bones) + n for n, i in enumerate(i for i, k in enumerate(keep) if k)}
+
+        def kept_parent(i):   # nearest kept ancestor
+            p = other.bones[i]["parent"]
+            for _ in range(len(keep)):
+                if not 0 <= p < len(keep) or keep[p]:
+                    break
+                p = other.bones[p]["parent"]
+            return new_bone.get(p, -1)
+        for i, b in enumerate(other.bones):
+            if keep[i]:
+                k = b["part"]
+                pos = b["pos"] if k is None else (moved[k] @ np.append(b["pos"], 1.0))[:3]
+                self.bones.append(dict(name=prefix + b["name"], parent=kept_parent(i), pos=pos,
+                                       part=None if k is None else new_part[k]))
 
     def default_parts(self, group="All"):
         """One part per non-empty mesh at its stored origin."""

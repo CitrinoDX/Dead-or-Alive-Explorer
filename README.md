@@ -45,7 +45,11 @@ options: --port 8765  --no-browser  --forget KEY  --version
 - 3D view: assembled model, shading modes, wireframe, parts panel (toggle/hover), OBJ, GLB or FBX export of what is
   visible. The FBX embeds its textures and carries the skeleton too (not skinned).
   Culling button / **Alt+C** cycles GreedXplorer's four modes in its order: none, CW (back faces), CCW (front faces),
-  per material (default, remembered between visits).
+  per material (default, remembered between visits). The parts panel's ▾ shrinks it to its header (remembered per game).
+- Character picker (DOAX2, right side above the parts panel): choose a girl, a head and a swimsuit and they load as one
+  model, ready for the export buttons; ←/→ step through the swimsuits. Heads: her hairstyles (dry and wet), or any other
+  girl's head as a head swap. Swimsuits: hers first, then every other girl's that has a fit for her body type. The parts
+  panel starts minimised in DOAX2 to make room.
 - Skeleton view (dropdown or `B`): off, drawn on top of the model, or the skeleton alone. The **Bones** tab in the parts
   panel lists the hierarchy; hovering a bone or a joint names it, clicking centres the view on it. A bone that belongs to
   a part shows only while that part does. Available wherever the limbs are assembled from bone data: DOA2U and DOAX
@@ -60,7 +64,7 @@ options: --port 8765  --no-browser  --forget KEY  --version
 | DOA2U | 418/418 entries load. Costumes assemble with GreedXplorer layouts (258 exact); the 25 `A#` costumes are DOA3 models and use GreedXplorer's DOA3 layouts, matched by mesh and texture count |
 | DOA1U | 135/135 load. Only gen00/jan00/jan01 have layouts and there are no `.cat` files, so the rest show unassembled. Stages are texture-only |
 | DOAX | 2593/2593 load. Bodies (`v<code>NN`) and ~2000 swimsuits/accessories (`md<item><wearer>`) placed from each `.cat` bone map + the wearer's skeleton. 19 items use a newer `.cat` variant and show unassembled |
-| DOAX2 | 1016/1016 load. Bodies, heads, swimsuits, items, boats, stages; placed from the file's own node tree. Heads are listed by hairstyle, each with its wet version. Swimsuits are listed by their shop names and show the owner's fit; the fits for the other body types are toggles in the parts panel |
+| DOAX2 | 1016/1016 load. Bodies, heads, swimsuits, items, boats, stages; placed from the file's own node tree. Heads are listed by hairstyle, each with its wet version. Swimsuits are listed by their shop names and show the owner's fit; the fits for the other body types are toggles in the parts panel. The character picker dresses any girl in any head and fitting swimsuit |
 | DOA4 | 854/854 load and every texture on the disc decodes (19,952). 23 characters plus a cutscene cast (117 costumes, 25 heads, 17 colour variants listed with their base), 24 stages, effects, menus and 635 online-lobby avatar parts; placed from the file's own node tree. Head-swap characters get their `AA` head, the other hairstyles are toggles in the parts panel |
 
 ## Versions
@@ -124,6 +128,11 @@ Verified unless marked otherwise.
   (Kasumi A-D, Ayane, Hitomi, Lei Fang and Helena A-B), the second A dry or B wet: the same hairstyle lying 5-20 mm
   flatter, bangs reaching up to 40 mm less far forward. Two exceptions: `vhtAB` has exactly `vhtAA`'s shapes (no real wet
   headband head), and `vcoBA` is Kokoro's dry head with a different face texture (ears painted in; use unknown).
+  Head files are stored around their own root node, not in body space. The root goes on the body's head node (object 1:
+  meshless, or a 3-vertex stub in Hitomi's body). Then the head's eyes land on the body's eye nodes (objects 8 and 27)
+  within 3 mm for eight girls; Lisa is 13 mm off because her eye nodes are Helena's. Bodies of one type differ only in
+  object 21, the neck piece, so a head swap within a body type also brings the head owner's neck and joins seamlessly.
+  Across body types the join and the skin tone can show.
   A colour map on UV set 1 multiplies the UV-set-0 one; it is usually a 1x1 to 32x32 white stand-in. Where the UV-set-0
   map is plain white with the shape in its alpha (Kokoro's hair in DOAX2 and DOA4, Brad's torn cloth in DOA4 `bra01`, a
   few stage pieces), the viewer bakes one texture: the two maps multiplied where both UV sets are the same (Brad), else

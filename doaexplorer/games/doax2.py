@@ -7,11 +7,14 @@ come as one file per body type. Each tree is matched to the body type whose join
 is shown. Swimsuits are listed by their shop name (SWIMSUITS); the file name stays in the info line.
 Bodies (<code>1) have no head. The heads <code><style><wet> are listed by hairstyle (HAIR): the second letter B is the
 wet head, the same hairstyle lying flatter with shorter bangs.
+Outfits (the character picker) put one girl's body, any head and any swimsuit with a fit for her body type together:
+the head file's root node goes on the body's head node (object 1; the eyes then land on the body's eye nodes within
+3 mm, 13 mm for Lisa, whose skeleton is Helena's), and the swimsuit's fit already sits in body space.
 Some pieces of each fit are loose objects outside its tree (rigid cups and bows): a fit's objects form one run of
 object indices, and its loose pieces sit at the same place in or just before every run. A loose tree split off a fit
 (Tina's bottom in vht_ch_a) keeps its other nodes inside that fit's run. Pieces stored once (bead rows, tassel chains,
 helper quads, ornaments kept with the middle fit only) are shared props, shown with every fit."""
-import collections, os
+import collections, os, re
 import numpy as np
 from ..afs import Afs
 from .. import vfs
@@ -44,14 +47,21 @@ HEAD_NOTES = {
 # named after a girl of that type, and all carry the same names.
 QIPAO = ["Ostrich", "Grebe", "Thunderbird", "Ptarmigan", "Thrush"]
 SAILOR = ["Dandelion", "Cherry Blossom"]
+QIPAO_FILES = ("vks_on_p_m", "vle_on_i_m", "vhe_on_r_m", "vtn_on_s_m", "vcr_on_u_m")
+SAILOR_FILES = ("vks_sk_f_m", "vht_sk_k_m", "vhe_sk_i_m", "vtn_sk_j_m", "vcr_sk_l_m")
+# whose shop sells a swimsuit, where that is not the file prefix
+SHOP_OWNER = {"vay_dl_i_m": "vls", "vcr_vs_b_m": "vls", "vco_dl_g_m": "vtn", "vtn_on_m_m": "vcr",
+              **dict.fromkeys(QIPAO_FILES, "vle"), **dict.fromkeys(SAILOR_FILES, "vks")}
+OUTFIT = "outfit:"   # outfit:<code>+<head entry>+<swimsuit entry, or nothing>, made up by the character picker
+NECK = 21            # the body object that differs between girls of one body type
 SWIMSUITS = {
     # gifts from Zack, the only character-specific swimsuits
     "vay_cs_b_m": ["Raccoon"], "vco_cs_i_m": ["Shiba"], "vco_cs_j_m": ["Citron", "Cassis"], "vcr_cs_g_m": ["Panther"],
     "vhe_cs_d_m": ["White Cat"], "vht_cs_f_m": ["Bear"], "vks_cs_a_m": ["Rabbit"],
     "vks_hn_i_m": ["Gentian", "Azalea", "Thistle"], "vle_cs_c_m": ["Panda"], "vls_cs_h_m": ["Leopard"],
     "vtn_cs_e_m": ["Black Cat"],
-    **dict.fromkeys(("vks_on_p_m", "vle_on_i_m", "vhe_on_r_m", "vtn_on_s_m", "vcr_on_u_m"), QIPAO),
-    **dict.fromkeys(("vks_sk_f_m", "vht_sk_k_m", "vhe_sk_i_m", "vtn_sk_j_m", "vcr_sk_l_m"), SAILOR),
+    **dict.fromkeys(QIPAO_FILES, QIPAO),
+    **dict.fromkeys(SAILOR_FILES, SAILOR),
     # the rest fit every body type. A few sets sit under another girl's prefix than the shop that sells them (noted).
     # *_sk_* pairs and Helena's / Kokoro's sarong sets: the larger file (with the skirt or sarong) comes first.
     "vay_ch_g_m": ["Oberon", "Efreet", "Carbunkle"],
@@ -200,6 +210,7 @@ class DOAX2(Game):
         self.src = vfs.open_source(folder)
         self.afs = {a: Afs(a + ".afs", self.src.open(a + ".afs")) for a, _ in ARCHIVES if self.src.exists(a + ".afs")}
         self.entries = {}
+        self.bodies, self.heads = {}, {}   # girl code -> chr entry of her body / of her heads
         repeat = collections.Counter()
         for arch, section in ARCHIVES:
             afs = self.afs.get(arch)
@@ -219,10 +230,17 @@ class DOAX2(Game):
                 if repeat[stem] < len(shop):
                     label = shop[repeat[stem]]
                 repeat[stem] += 1
-                self.entries["%s:%d" % (arch, i)] = dict(archive=arch, index=i, char=char, section=section,
-                                                         label=label, name=nm, size=afs.size(i))
+                eid = "%s:%d" % (arch, i)
+                self.entries[eid] = dict(archive=arch, index=i, char=char, section=section, label=label, name=nm,
+                                         stem=stem, size=afs.size(i))
+                if arch == "chr" and char:
+                    if stem[3:] == "1":
+                        self.bodies[char] = eid
+                    else:
+                        self.heads.setdefault(char, []).append(eid)
         self._tree = None
         self._types = None
+        self._dress = None
 
     def body_types(self):
         """[(label, codes, joints)]: the girls grouped by identical skeletons, read from their <code>1.tpr bodies"""
@@ -242,22 +260,34 @@ class DOAX2(Game):
             self._types = [(" / ".join(self.names[c] for c in codes), codes, j) for codes, j in types]
         return self._types
 
+    def type_of(self, code):
+        """the body type label a girl belongs to ('Kasumi / Ayane')"""
+        return next(label for label, codes, _ in self.body_types() if code in codes)
+
+    def match_trees(self, t):
+        """[(nodes, joints, (label, codes) of the body type it fits, or None)] for each node tree of a swimsuit"""
+        out = []
+        for nodes, joints in hierarchies(t):
+            best = None
+            for label, codes, B in self.body_types():
+                d = np.linalg.norm(B[:, None] - joints[None], axis=2).min(1).max()   # every body joint is repeated
+                if d < FIT_TOL and (best is None or d < best[0]):
+                    best = (d, label, codes)
+            out.append((nodes, joints, best and best[1:]))
+        return out
+
     def group_fits(self, sc, t, owner):
         """Swimsuits: name each node tree after the body type it fits ('Fit: Kasumi / Ayane'), file the loose pieces
         with their fit (see the module notes), show the owner's fit and the props, hide the other fits. Bare bones (most
         of each tree) hang off the nearest part above them, else any part of their tree, so the skeleton view hides them
         with their fit."""
         node_of = {n["idx"]: i for i, n in enumerate(t.nodes)}
-        trees, fits, loose = hierarchies(t), [], []
-        for nodes, joints in trees:
-            best = None
-            for label, codes, B in self.body_types():
-                d = np.linalg.norm(B[:, None] - joints[None], axis=2).min(1).max()   # every body joint is repeated
-                if d < FIT_TOL and (best is None or d < best[0]):
-                    best = (d, label, codes)
+        trees, fits, loose = [], [], []
+        for nodes, joints, best in self.match_trees(t):
+            trees.append((nodes, joints))
             idx = [t.nodes[i]["idx"] for i in nodes]
             if best:
-                fits.append(dict(group="Fit: " + best[1], codes=best[2], nodes=nodes, lo=min(idx), hi=max(idx)))
+                fits.append(dict(group="Fit: " + best[0], codes=best[1], nodes=nodes, lo=min(idx), hi=max(idx)))
             else:
                 loose.append((nodes, idx[1:] or idx))   # a loose tree's root can sit far from its other nodes
         if not fits:
@@ -322,7 +352,78 @@ class DOAX2(Game):
             self._tree = groups
         return self._tree
 
-    def load(self, sid):
+    def dress(self):
+        """The character picker's lists: per girl her body, her heads and every swimsuit with a fit for her body type
+        (read from the swimsuits' node trees once, a few seconds), each with the girl whose shop sells it."""
+        if self._dress is None:
+            suits = {c: [] for c in self.bodies}
+            for eid, e in self.entries.items():
+                if e["archive"] not in ("werone", "wertwo") or not e["char"]:
+                    continue
+                t = tpr.parse_tpr(self.afs[e["archive"]].read(e["index"]))
+                wearers = {c for _, _, fit in self.match_trees(t) if fit for c in fit[1]}
+                for c in wearers & set(suits):
+                    suits[c].append(dict(id=eid, label=e["label"], owner=SHOP_OWNER.get(e["stem"], e["char"])))
+            stem = lambda eid: self.entries[eid]["stem"]   # AA (first hairstyle, dry) first
+            self._dress = dict(girls=[dict(code=c, name=self.names[c], body=self.bodies[c],
+                                           heads=[dict(id=h, label=self.entries[h]["label"])
+                                                  for h in sorted(self.heads.get(c, []), key=stem)],
+                                           suits=sorted(suits[c], key=lambda s: s["label"].lower()))
+                                      for c in sorted(self.bodies, key=lambda c: self.names[c])])
+        return self._dress
+
+    def load_outfit(self, sid):
+        """outfit:<code>+<head>+<swimsuit>: her body, the head on her head node, the swimsuit's fit for her body type.
+        The swimsuit adds no bones: its fit repeats the body's skeleton."""
+        code, hid, wid = sid[len(OUTFIT):].split("+")
+        chr_, b, h = self.afs["chr"], self.entries[self.bodies[code]], self.entries[hid]
+        sc, t = tpr.to_scene(sid, chr_.read(b["index"]))
+        for p in sc.parts:
+            p["group"] = "Body"
+        J = tpr.global_matrices(t)[1]   # the head node: object 1 (meshless, a 3-vertex stub in Hitomi's body)
+        hs, ht = tpr.to_scene(hid, chr_.read(h["index"]))
+        root = next(n["idx"] for n in ht.nodes if n["parent"] >= len(ht.nodes))
+        X = J @ np.linalg.inv(tpr.global_matrices(ht)[root])
+        nb = len(sc.bones)
+        sc.merge(hs, "head ", lambda p: ("Head", True, X @ p["m"]))
+        neck = next(i for i, n in enumerate(t.nodes) if n["idx"] == 1)
+        for bone in sc.bones[nb:]:
+            if bone["parent"] < 0:
+                bone["parent"] = neck
+        who, head = self.names[code], h["label"] + ("" if h["char"] == code else " (%s's)" % self.names[h["char"]])
+        files = ["chr.afs #%d (%s)" % (b["index"], b["name"]), "#%d (%s)" % (h["index"], h["name"])]
+        suit, notes = "no swimsuit", []
+        if h["char"] != code and self.type_of(h["char"]) == self.type_of(code):
+            # bodies of one type differ only in the neck piece: take the head owner's, which meets her head
+            o = self.entries[self.bodies[h["char"]]]
+            os_, _ = tpr.to_scene(o["stem"], chr_.read(o["index"]))
+            n = len(sc.parts)
+            sc.merge(os_, "neck ", lambda p: ("Body", True, p["m"]) if p["mesh"] == NECK else None, bones=False)
+            next(p for p in sc.parts[:n] if p["mesh"] == NECK)["mesh"] = sc.parts[n]["mesh"]
+            del sc.parts[n:]
+            files.insert(1, "#%d (%s, neck)" % (o["index"], o["name"]))
+        elif h["char"] != code:
+            notes.append("head swap across body types: the neck is %s's, so the join and skin tone may not match" % who)
+        if wid:
+            w = self.entries[wid]
+            ws = self.load(wid, wearer=code)
+            mine = "Fit: " + self.type_of(code)
+            if not any(p["group"] == mine for p in ws.parts):
+                notes.append("%s has no fit for %s's body type; showing its %s fit" % (w["label"], who, ws.info.get("fits")))
+            sc.merge(ws, "suit ", lambda p: ("Swimsuit" if p["group"] != "Props" else "Swimsuit props", True, p["m"])
+                     if p["visible"] else None, bones=False)
+            suit = w["label"]
+            files.append("%s.afs #%d (%s)" % (w["archive"], w["index"], w["name"]))
+        sc.title = "%s - %s - %s" % (who, head, suit)
+        sc.export_name = re.sub(r"[^0-9A-Za-z]+", "_", "%s %s %s" % (who, head.replace("Head: ", ""), suit)).strip("_")
+        sc.note = "; ".join(notes)
+        sc.info.update(meshes=sum(g is not None for g in sc.meshes), textures=len(sc.textures), archive=" + ".join(files))
+        return sc
+
+    def load(self, sid, wearer=None):
+        """wearer: whose fit a swimsuit shows (default its owner)"""
+        if sid.startswith(OUTFIT):
+            return self.load_outfit(sid)
         e = self.entries[sid]
         raw = self.afs[e["archive"]].read(e["index"])
         who = self.names.get(e["char"], "") if e["char"] else e["section"]
@@ -330,10 +431,10 @@ class DOAX2(Game):
         sc.info["archive"] = "%s.afs #%d (%s)" % (e["archive"], e["index"], e["name"])
         if not t.objs:
             sc.note = "texture bundle (no meshes)"
-        elif e["name"].rsplit(".", 1)[0] in HEAD_NOTES:
-            sc.note = HEAD_NOTES[e["name"].rsplit(".", 1)[0]]
+        elif e["stem"] in HEAD_NOTES:
+            sc.note = HEAD_NOTES[e["stem"]]
         elif not t.nodes:
             sc.note = "no node hierarchy - parts shown at their stored origin"
         elif e["archive"] in ("werone", "wertwo"):
-            self.group_fits(sc, t, e["char"])
+            self.group_fits(sc, t, wearer or e["char"])
         return sc
