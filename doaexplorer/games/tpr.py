@@ -136,7 +136,7 @@ def obj_geometry(t, obj, ntex):
             continue
         vb = obj["vbufs"][dc["vbuf"]]
         raw = np.frombuffer(d, np.uint8, count=dc["nverts"] * dc["stride"], offset=vb).reshape(dc["nverts"], dc["stride"])
-        pos = nrm = uv = None
+        pos = nrm = uv = uv1 = None
         for off, dtype, usage, layer, _ in dc["layers"]:
             if usage == USAGE_POS and layer == 0 and pos is None:
                 pos = decode_attr(raw, off, dtype)
@@ -148,13 +148,17 @@ def obj_geometry(t, obj, ntex):
                 a = decode_attr(raw, off, dtype)
                 if a is not None:
                     uv = a[:, :2]
+            elif usage == USAGE_UV and layer == 1 and uv1 is None:
+                a = decode_attr(raw, off, dtype)
+                if a is not None:
+                    uv1 = a[:, :2]
         ind = np.frombuffer(d, ">u2", count=dc["nidx"], offset=obj["ibufs"][dc["ibuf"]]).astype(np.int64)
-        verts.append(None if pos is None else (pos[:, :3], nrm, uv, ind))
+        verts.append(None if pos is None else (pos[:, :3], nrm, uv, uv1, ind))
     chunks = []
     for mt in obj["materials"]:
         if mt["decl"] >= len(verts) or verts[mt["decl"]] is None:
             continue
-        pos, nrm, uv, ind = verts[mt["decl"]]
+        pos, nrm, uv, uv1, ind = verts[mt["decl"]]
         tris = strip_to_tris(ind[mt["istart"]:mt["istart"] + mt["icount"]], restart=0xFFFF)
         if not len(tris) or tris.max() >= len(pos):
             continue
@@ -164,10 +168,16 @@ def obj_geometry(t, obj, ntex):
             if gi < ntex and slot == 0 and maptype in (0, 1):
                 tex = gi
                 break
+        # a colour map on UV set 1 multiplies it: usually a tiny white stand-in, but Kokoro's hair has a white alpha mask
+        # on UV set 0 and the brown on UV set 1. to_scene checks the pixels (tinted_masks)
+        tint = -1
+        if mt["transparent"]:
+            tint = next((gi for slot, maptype, gi in mt["textures"] if gi < ntex and slot == 1 and maptype == 1), -1)
+        same = tint >= 0 and uv is not None and uv1 is not None and np.abs(uv1[used] - uv[used]).max() < 1e-4
         chunks.append(dict(pos=pos[used], nrm=None if nrm is None else nrm[used], uv=None if uv is None else uv[used],
                            tris=inv.reshape(-1, 3),
                            sub=dict(tex=int(tex), transparent=mt["transparent"], cull=CULL_NONE,
-                                    diffuse=[1.0, 1.0, 1.0, 1.0])))
+                                    diffuse=[1.0, 1.0, 1.0, 1.0], tint=int(tint), tint_same_uv=bool(same))))
     g = merge_geometry(chunks)
     if g is not None:
         g["name"] = "OBJ%02d" % obj["index"]
@@ -253,6 +263,45 @@ def detail_groups(t, meshes, mats, tol=0.01):
     return out
 
 
+def tinted_masks(sc):
+    """Transparent materials whose UV-set-0 map is plain white (only its alpha carries the shape) take their colour from
+    the UV-set-1 map: Kokoro's hair (DOAX2 vco*, DOA4 hak*), Brad's torn cloth (DOA4 bra01), a few stage pieces. The
+    viewer draws one texture per material, so such a sub gets a baked copy: the two maps multiplied where both UV sets
+    are the same (Brad), else the mask filled with the colour map's mean colour (Kokoro's runs along the strands on its
+    own UVs). Other subs keep their map; the tint keys are dropped either way."""
+    made = {}
+    for g in sc.meshes:
+        for s in (g or {}).get("subs", ()):
+            tint, same = s.pop("tint", -1), s.pop("tint_same_uv", False)
+            if tint < 0 or s["tex"] < 0 or tint == s["tex"] or sc.textures[tint]["w"] * sc.textures[tint]["h"] < 4096:
+                continue   # the stand-ins are 1x1 to 32x32
+            key = (s["tex"], tint, same)
+            if key not in made:
+                made[key] = _bake_tint(sc, s["tex"], tint, same)
+            if made[key] is not None:
+                s["tex"] = made[key]
+
+
+def _bake_tint(sc, tex, tint, same):
+    mask = sc.texture_rgba(tex)
+    solid = mask[:, :, 3] > 8
+    if not solid.any() or mask[:, :, :3][solid].min() < 248:
+        return None
+    col = sc.texture_rgba(tint)
+    if same:   # both maps onto the larger grid (nearest pixel), then multiplied
+        h, w = max(mask.shape[0], col.shape[0]), max(mask.shape[1], col.shape[1])
+        grid = lambda a: a[np.arange(h) * a.shape[0] // h][:, np.arange(w) * a.shape[1] // w]
+        mask, col = grid(mask), grid(col).astype(np.uint16)
+        img = mask.copy()
+        img[:, :, :3] = mask[:, :, :3] * col[:, :, :3] // 255
+    else:
+        img = mask.copy()
+        img[:, :, :3] = col[:, :, :3].reshape(-1, 3).mean(0).round()
+    m, c = sc.textures[tex], sc.textures[tint]
+    return sc.add_texture(img.shape[1], img.shape[0], "%s x %s" % (m["fmt"], c["fmt"]), (lambda img=img: img),
+                          name="%s x %s" % (m["name"], c["name"]))
+
+
 def to_scene(sid, raw, title=None, character=False):
     """character: sort a DOA4 character file into model / low detail / shadow / extras (see detail_groups)"""
     t = parse_tpr(raw)
@@ -276,6 +325,7 @@ def to_scene(sid, raw, title=None, character=False):
         sc.add_texture(tx["w"], tx["h"], texture.x360_format_name(tx["fmt"]) + ("" if tx["kind"] == "TX2D" else " " + tx["kind"]),
                        (lambda tx=tx: texture.decode_x360(t.data, tx["offset"], tx["fmt"], tx["endian"], tx["w"], tx["h"], tx["tiled"])),
                        name=tx["name"])
+    tinted_masks(sc)
     sc.info = dict(meshes=len(t.objs), textures=len(t.textures), nodes=len(t.nodes), format="XPR2 / TPR (Xbox 360)")
     if t.nodes:
         sc.info["skeleton"] = "node hierarchy"

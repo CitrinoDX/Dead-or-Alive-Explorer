@@ -59,7 +59,7 @@ options: --port 8765  --no-browser  --forget KEY  --version
 | DOA2U | 418/418 entries load. Costumes assemble with GreedXplorer layouts (258 exact); the 25 `A#` costumes are DOA3 models and use GreedXplorer's DOA3 layouts, matched by mesh and texture count |
 | DOA1U | 135/135 load. Only gen00/jan00/jan01 have layouts and there are no `.cat` files, so the rest show unassembled. Stages are texture-only |
 | DOAX | 2593/2593 load. Bodies (`v<code>NN`) and ~2000 swimsuits/accessories (`md<item><wearer>`) placed from each `.cat` bone map + the wearer's skeleton. 19 items use a newer `.cat` variant and show unassembled |
-| DOAX2 | 1016/1016 load. Bodies, heads, swimsuits, items, boats, stages; placed from the file's own node tree. Swimsuits are listed by their shop names and show the owner's fit; the fits for the other body types are toggles in the parts panel |
+| DOAX2 | 1016/1016 load. Bodies, heads, swimsuits, items, boats, stages; placed from the file's own node tree. Heads are listed by hairstyle, each with its wet version. Swimsuits are listed by their shop names and show the owner's fit; the fits for the other body types are toggles in the parts panel |
 | DOA4 | 854/854 load and every texture on the disc decodes (19,952). 23 characters plus a cutscene cast (117 costumes, 25 heads, 17 colour variants listed with their base), 24 stages, effects, menus and 635 online-lobby avatar parts; placed from the file's own node tree. Head-swap characters get their `AA` head, the other hairstyles are toggles in the parts panel |
 
 ## Versions
@@ -113,7 +113,14 @@ Verified unless marked otherwise.
   count at +0x14, offsets at +0x20. Vertex decls are D3DDECLTYPE layers (FLOAT3, HEND3N, FLOAT16_2, ...). Strips use 0xFFFF
   restarts. Hie nodes are row-vector 4x4 matrices with parent node indices, one per object (node index = object index);
   that tree is the skeleton view. DOAX2 swimsuits carry ~150 extra nodes with no mesh (bare bones).
-  DOAX2 bodies have no head: heads and hair are the `AA/AB...` files.
+  DOAX2 bodies have no head: heads and hair are the `<code><style><wet>` files. The first letter is the hairstyle
+  (Kasumi A-D, Ayane, Hitomi, Lei Fang and Helena A-B), the second A dry or B wet: the same hairstyle lying 5-20 mm
+  flatter, bangs reaching up to 40 mm less far forward. Two exceptions: `vhtAB` has exactly `vhtAA`'s shapes (no real wet
+  headband head), and `vcoBA` is Kokoro's dry head with a different face texture (ears painted in; use unknown).
+  A colour map on UV set 1 multiplies the UV-set-0 one; it is usually a 1x1 to 32x32 white stand-in. Where the UV-set-0
+  map is plain white with the shape in its alpha (Kokoro's hair in DOAX2 and DOA4, Brad's torn cloth in DOA4 `bra01`, a
+  few stage pieces), the viewer bakes one texture: the two maps multiplied where both UV sets are the same (Brad), else
+  the mask filled with the colour map's mean colour (Kokoro's runs along the strands on its own UVs).
   Texture headers are 0x34 bytes in DOAX2 and 0x28 in DOA4; both end with the 6-dword GPU fetch constant, so it is read
   from the end. DOA4 also uses format 0x0A (8_8, stage water-ripple frames).
   Material alpha blending is the dword at +0x50: it is set on every material whose texture has alpha (DOA4 characters
@@ -128,7 +135,7 @@ Verified unless marked otherwise.
   owner. All 308 shop swimsuits (the wiki's nine lists) are named in the viewer, matched by texture; the file name stays
   in the info line. Some sets sit under another girl's prefix: Lisa's butterfly bikinis (`vay_dl_i`) and Venus
   (`vcr_vs_b`), Tina's G-string bikinis (`vco_dl_g`), Christie's bunny suits (`vtn_on_m`). Kokoro's three crop tops
-  (`vco_sh_e`) are stored twice, the second copy with a see-through shirt. Same-name repeats are design
+  (`vco_sh_e`) are stored twice; the second copy, with a see-through shirt, is listed as the wet one. Same-name repeats are design
   variants (textures always differ, geometry usually). Loose objects outside the trees: a fit's objects form one run of
   object indices, and its loose pieces (rigid cups and bows) sit at the same offset in or just before every run; a loose
   tree split off a fit (Tina's bottom in `vht_ch_a`) keeps its other nodes inside that fit's run. Pieces stored once (bead
@@ -175,8 +182,7 @@ Verified unless marked otherwise.
 - DOAX: no "wear swimsuit on body" combination yet (each file is shown on its own); stages show at their stored origins.
 - DOAX2: LOD/shadow meshes are not separated (the `.cat` "long way" isn't decoded); no skinning or morphs; small textures that
   live in a packed mip tail may decode wrong.
-- DOA4: `.cat` material tints are not applied, so colour variants look like their base and tinted hair shows untinted
-  (Kokoro's hair renders white). Which head goes with which costume in-game isn't known; `AA` is always the default.
+- DOA4: `.cat` material tints are not applied, so colour variants look like their base. Which head goes with which costume in-game isn't known; `AA` is always the default.
   Stages show the first colour map of each material (no lightmaps), and some frame wide because of distant scenery
   cards. No skinning or animation.
 - DOA2U: env-map layers are still guesses; `.mot` animations not parsed.

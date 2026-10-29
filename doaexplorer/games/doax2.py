@@ -5,6 +5,8 @@ and so do their bodies apart from the neck. Swimsuits <owner>_<type>_<letter>_m 
 separate node tree each; the 14 gifts from Zack carry only the owner's fit, and Leifang's qipao and Kasumi's sailor fuku
 come as one file per body type. Each tree is matched to the body type whose joints it repeats, and only the owner's fit
 is shown. Swimsuits are listed by their shop name (SWIMSUITS); the file name stays in the info line.
+Bodies (<code>1) have no head. The heads <code><style><wet> are listed by hairstyle (HAIR): the second letter B is the
+wet head, the same hairstyle lying flatter with shorter bangs.
 Some pieces of each fit are loose objects outside its tree (rigid cups and bows): a fit's objects form one run of
 object indices, and its loose pieces sit at the same place in or just before every run. A loose tree split off a fit
 (Tina's bottom in vht_ch_a) keeps its other nodes inside that fit's run. Pieces stored once (bead rows, tassel chains,
@@ -25,6 +27,19 @@ ARCHIVES = (("chr", "Bodies"), ("werone", "Swimsuits"), ("wertwo", "Swimsuits"),
             ("boat", "Boats"), ("stg", "Stages"), ("avt", "Avatar"))
 # a fitted copy repeats its body type's joints exactly (0.0000); the nearest other body type is 7 mm off
 FIT_TOL = 0.002
+# chr.afs head <code><style><wet> -> hairstyle by its first letter; Tina, Lisa, Christie and Kokoro have one hairstyle
+HAIR = {
+    "vks": {"A": "Long hair down", "B": "Braid with yellow bows", "C": "High ponytail with ribbons", "D": "Low ponytail"},
+    "vay": {"A": "With ribbon", "B": "Without ribbon"},
+    "vht": {"A": "Pink headband", "B": "No headband"},
+    "vle": {"A": "Long straight hair", "B": "Braided buns"},
+    "vhe": {"A": "Ponytail with big blue bow", "B": "Ponytail with small bow"},
+    "vco": {"B": "Other face texture"},
+}
+HEAD_NOTES = {
+    "vhtAB": "same shapes as the dry Pink headband head: this hairstyle has no real wet version",
+    "vcoBA": "same shapes as the dry head; only the face texture differs (ears painted in). What the game uses it for is unknown",
+}
 # swimsuit file name -> shop names of its repeats in archive order. The qipao and sailor fuku files are one per body type,
 # named after a girl of that type, and all carry the same names.
 QIPAO = ["Ostrich", "Grebe", "Thunderbird", "Ptarmigan", "Thrush"]
@@ -53,9 +68,8 @@ SWIMSUITS = {
     "vco_ch_f_m": ["Peach", "Raspberry", "Kiwifruit"],
     "vco_dl_g_m": ["Bellatrix", "Alcyone", "Fomalhaut", "Taygeta", "Alphard"],   # Tina's
     "vco_dl_h_m": ["Cranberry", "Grape", "Blueberry", "Prune", "Fig"],
-    # each crop top twice: the second copy's shirt texture is see-through
-    "vco_sh_e_m": ["Strawberry", "Watermelon", "Melon",
-                   "Strawberry (see-through)", "Watermelon (see-through)", "Melon (see-through)"],
+    # each crop top twice: the second copy is the wet shirt (see-through texture)
+    "vco_sh_e_m": ["Strawberry", "Watermelon", "Melon", "Strawberry (wet)", "Watermelon (wet)", "Melon (wet)"],
     "vco_sh_f_m": ["Coconut", "Shekwasha", "Muscat"],
     "vco_sk_c_m": ["Banana", "Lime", "Papaya", "Lemon", "Mango", "Quince", "Lychee", "Camu Camu"],
     "vco_sp_b_m": ["Guava", "Apricot", "Durian", "Plum"],
@@ -149,6 +163,15 @@ def hierarchies(t):
     return [(v, np.array([glob[i][:3, 3] for i in v])) for v in trees]
 
 
+def chr_label(stem):
+    """chr.afs <code>1 -> 'Body', <code><style><wet> -> 'Head: <hairstyle>', with ' (wet)' for the B heads"""
+    rest = stem[3:]
+    if len(rest) != 2:
+        return "Body" if rest == "1" else "body " + rest
+    style = HAIR.get(stem[:3], {}).get(rest[0])
+    return "Head" + (": " + style if style else "") + (" (wet)" if rest[1] == "B" else "")
+
+
 class DOAX2(Game):
     key = "doax2"
     title = "Dead or Alive Xtreme 2"
@@ -191,7 +214,7 @@ class DOAX2(Game):
                 char = code if code in self.names and arch in ("chr", "werone", "wertwo") else None
                 label = stem[4:] if char and stem[3:4] == "_" else stem
                 if arch == "chr" and char:
-                    label = "body " + stem[3:]
+                    label = chr_label(stem)
                 shop = SWIMSUITS.get(stem, ())
                 if repeat[stem] < len(shop):
                     label = shop[repeat[stem]]
@@ -307,6 +330,8 @@ class DOAX2(Game):
         sc.info["archive"] = "%s.afs #%d (%s)" % (e["archive"], e["index"], e["name"])
         if not t.objs:
             sc.note = "texture bundle (no meshes)"
+        elif e["name"].rsplit(".", 1)[0] in HEAD_NOTES:
+            sc.note = HEAD_NOTES[e["name"].rsplit(".", 1)[0]]
         elif not t.nodes:
             sc.note = "no node hierarchy - parts shown at their stored origin"
         elif e["archive"] in ("werone", "wertwo"):
