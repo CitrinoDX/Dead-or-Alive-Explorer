@@ -10,11 +10,17 @@ wet head, the same hairstyle lying flatter with shorter bangs.
 Outfits (the character picker) put one girl's body, any head and any swimsuit with a fit for her body type together:
 the head file's root node goes on the body's head node (object 1; the eyes then land on the body's eye nodes within
 3 mm, 13 mm for Lisa, whose skeleton is Helena's), and the swimsuit's fit already sits in body space.
+Every body carries two pairs of feet: flat ones (ankle, foot, toe joint and toes under each shin) and, as separate root
+objects, a one-piece foot tilted 18 degrees toes-down with its own ankle piece, the swap set of the body's .cat. The
+tilted pair is for heels. No swimsuit has shoes: footwear is the 18 ankle accessories and the bunny suit's heels in
+itm.afs, each followed by a .cat that puts each shoe on a foot bone with a matrix. A pair is heels when it fits the tilted
+feet better than the flat ones (10-13 mm off them; flat shoes sit 12-17 mm off the flat feet). Bodies show the flat
+feet, outfits the pair their shoes need; the other pair is a hidden group.
 Some pieces of each fit are loose objects outside its tree (rigid cups and bows): a fit's objects form one run of
 object indices, and its loose pieces sit at the same place in or just before every run. A loose tree split off a fit
 (Tina's bottom in vht_ch_a) keeps its other nodes inside that fit's run. Pieces stored once (bead rows, tassel chains,
 helper quads, ornaments kept with the middle fit only) are shared props, shown with every fit."""
-import collections, os, re
+import collections, os, re, struct
 import numpy as np
 from ..afs import Afs
 from .. import vfs
@@ -54,6 +60,12 @@ SHOP_OWNER = {"vay_dl_i_m": "vls", "vcr_vs_b_m": "vls", "vco_dl_g_m": "vtn", "vt
               **dict.fromkeys(QIPAO_FILES, "vle"), **dict.fromkeys(SAILOR_FILES, "vks")}
 OUTFIT = "outfit:"   # outfit:<code>+<head entry>+<swimsuit entry, or nothing>, made up by the character picker
 NECK = 21            # the body object that differs between girls of one body type
+# body objects, the same in all nine bodies: per side ankle, foot, toe joint and toes; the tilted ankle and foot for heels
+FLAT_FEET = (3, 9, 13, 19, 22, 28, 32, 38)
+HEEL_FEET = (4, 10, 23, 29)
+HEEL_PARENT = {10: 17, 4: 10, 29: 36, 23: 29}   # where the game swaps them in: foot under the shin, ankle under the foot
+FOOT_OBJ = {3: 9, 9: 28}                        # foot bone in a shoe's .cat -> the body object on that bone
+SHOES = ("acc_ank_", "zgra_bny_")               # itm.afs footwear: the ankle accessories, the bunny suit's heels
 SWIMSUITS = {
     # gifts from Zack, the only character-specific swimsuits
     "vay_cs_b_m": ["Raccoon"], "vco_cs_i_m": ["Shiba"], "vco_cs_j_m": ["Citron", "Cassis"], "vcr_cs_g_m": ["Panther"],
@@ -173,6 +185,33 @@ def hierarchies(t):
     return [(v, np.array([glob[i][:3, 3] for i in v])) for v in trees]
 
 
+def foot_attach(cat):
+    """footwear .cat: (object, bone, row-vector 4x4) records from +0x18 until object -1 -> {object: (bone, 4x4)}"""
+    out, p = {}, 0x18
+    while cat[:4] == b"CAT\0" and p + 72 <= len(cat):
+        obj, bone = struct.unpack_from(">ii", cat, p)
+        if obj < 0:
+            break
+        out[obj] = (bone, np.array(struct.unpack_from(">16f", cat, p + 8), np.float64).reshape(4, 4).T)
+        p += 72
+    return out
+
+
+def show_feet(sc, t, heels, group):
+    """Show one pair of a body scene's feet in group (the tilted pair for heels) and file the other as a hidden group;
+    the tilted pieces' bones go where the game swaps them in. Call before anything is merged into the body scene."""
+    for p in sc.parts:
+        if p["mesh"] in FLAT_FEET + HEEL_FEET:
+            flat = p["mesh"] in FLAT_FEET
+            spare = flat == heels
+            p["group"] = ("Flat feet" if flat else "Feet for heels") if spare else group
+            p["visible"] = not spare
+    node_of = {n["idx"]: i for i, n in enumerate(t.nodes)}
+    for o, parent in HEEL_PARENT.items():
+        if o in node_of and parent in node_of:
+            sc.bones[node_of[o]]["parent"] = node_of[parent]
+
+
 def chr_label(stem):
     """chr.afs <code>1 -> 'Body', <code><style><wet> -> 'Head: <hairstyle>', with ' (wet)' for the B heads"""
     rest = stem[3:]
@@ -211,7 +250,8 @@ class DOAX2(Game):
         self.afs = {a: Afs(a + ".afs", self.src.open(a + ".afs")) for a, _ in ARCHIVES if self.src.exists(a + ".afs")}
         self.entries = {}
         self.bodies, self.heads = {}, {}   # girl code -> chr entry of her body / of her heads
-        repeat = collections.Counter()
+        self.shoes = []                    # footwear entries (SHOES)
+        repeat, shoe_no = collections.Counter(), collections.Counter()
         for arch, section in ARCHIVES:
             afs = self.afs.get(arch)
             if not afs:
@@ -230,9 +270,15 @@ class DOAX2(Game):
                 if repeat[stem] < len(shop):
                     label = shop[repeat[stem]]
                 repeat[stem] += 1
+                if arch == "itm" and stem.startswith(SHOES):   # the archive names all 18 ankle accessories acc_ank_
+                    kind = "Ankle accessory" if stem == SHOES[0] else "Bunny heels"
+                    shoe_no[kind] += 1
+                    label = "%s %d" % (kind, shoe_no[kind])
                 eid = "%s:%d" % (arch, i)
                 self.entries[eid] = dict(archive=arch, index=i, char=char, section=section, label=label, name=nm,
                                          stem=stem, size=afs.size(i))
+                if arch == "itm" and stem.startswith(SHOES):
+                    self.shoes.append(eid)
                 if arch == "chr" and char:
                     if stem[3:] == "1":
                         self.bodies[char] = eid
@@ -241,6 +287,8 @@ class DOAX2(Game):
         self._tree = None
         self._types = None
         self._dress = None
+        self._feet = None
+        self._heels = {}
 
     def body_types(self):
         """[(label, codes, joints)]: the girls grouped by identical skeletons, read from their <code>1.tpr bodies"""
@@ -369,18 +417,52 @@ class DOAX2(Game):
                                            heads=[dict(id=h, label=self.entries[h]["label"])
                                                   for h in sorted(self.heads.get(c, []), key=stem)],
                                            suits=sorted(suits[c], key=lambda s: s["label"].lower()))
-                                      for c in sorted(self.bodies, key=lambda c: self.names[c])])
+                                      for c in sorted(self.bodies, key=lambda c: self.names[c])],
+                               shoes=[dict(id=s, label=self.entries[s]["label"], heels=self.heels(s)) for s in self.shoes])
         return self._dress
 
+    def put_on_shoes(self, sid, B):
+        """A pair of shoes on a body with node matrices B (tpr.global_matrices) -> (shoe scene, {object: matrix}): each
+        shoe on the body's foot object, by the .cat that follows the model. Objects the .cat leaves out are not worn."""
+        e = self.entries[sid]
+        afs = self.afs[e["archive"]]
+        ss, st = tpr.to_scene(sid, afs.read(e["index"]))
+        S = tpr.global_matrices(st)
+        return ss, {o: B[FOOT_OBJ[b]] @ m @ S[o] for o, (b, m) in foot_attach(afs.read(e["index"] + 1)).items()
+                    if b in FOOT_OBJ and o in S and ss.meshes[o] is not None}
+
+    def heels(self, sid):
+        """True when a pair of shoes fits the tilted feet better than the flat ones: median distance of its vertices to the
+        nearest foot vertex, worn on the first body (every body type gives the same answer)"""
+        if sid not in self._heels:
+            if self._feet is None:
+                b = self.entries[next(iter(self.bodies.values()))]
+                sc, t = tpr.to_scene(b["stem"], self.afs["chr"].read(b["index"]))
+                B = tpr.global_matrices(t)
+                world = lambda objs: np.concatenate([sc.meshes[o]["pos"] @ B[o][:3, :3].T + B[o][:3, 3] for o in objs])
+                self._feet = (B, world(FLAT_FEET)[::2], world(HEEL_FEET)[::2])
+            B, flat, tilt = self._feet
+            ss, X = self.put_on_shoes(sid, B)
+            p = np.concatenate([ss.meshes[o]["pos"] @ m[:3, :3].T + m[:3, 3] for o, m in X.items()])
+            p = p[::max(1, len(p) // 600)]
+            near = lambda q: np.median(np.linalg.norm(p[:, None] - q[None], axis=2).min(1))
+            self._heels[sid] = bool(X) and bool(near(tilt) < near(flat))
+        return self._heels[sid]
+
     def load_outfit(self, sid):
-        """outfit:<code>+<head>+<swimsuit>: her body, the head on her head node, the swimsuit's fit for her body type.
-        The swimsuit adds no bones: its fit repeats the body's skeleton."""
-        code, hid, wid = sid[len(OUTFIT):].split("+")
+        """outfit:<code>+<head>+<swimsuit>[+<shoes>]: her body, the head on her head node, the swimsuit's fit for her body
+        type, the shoes on her feet (her tilted feet for heels). The swimsuit and shoes add no bones: the fit repeats the
+        body's skeleton."""
+        code, hid, wid, *rest = sid[len(OUTFIT):].split("+")
+        shoes = rest[0] if rest else ""
         chr_, b, h = self.afs["chr"], self.entries[self.bodies[code]], self.entries[hid]
         sc, t = tpr.to_scene(sid, chr_.read(b["index"]))
         for p in sc.parts:
             p["group"] = "Body"
-        J = tpr.global_matrices(t)[1]   # the head node: object 1 (meshless, a 3-vertex stub in Hitomi's body)
+        heels = bool(shoes) and self.heels(shoes)
+        show_feet(sc, t, heels, "Body")
+        B = tpr.global_matrices(t)
+        J = B[1]   # the head node: object 1 (meshless, a 3-vertex stub in Hitomi's body)
         hs, ht = tpr.to_scene(hid, chr_.read(h["index"]))
         root = next(n["idx"] for n in ht.nodes if n["parent"] >= len(ht.nodes))
         X = J @ np.linalg.inv(tpr.global_matrices(ht)[root])
@@ -414,8 +496,17 @@ class DOAX2(Game):
                      if p["visible"] else None, bones=False)
             suit = w["label"]
             files.append("%s.afs #%d (%s)" % (w["archive"], w["index"], w["name"]))
-        sc.title = "%s - %s - %s" % (who, head, suit)
-        sc.export_name = re.sub(r"[^0-9A-Za-z]+", "_", "%s %s %s" % (who, head.replace("Head: ", ""), suit)).strip("_")
+        shoe = ""
+        if shoes:
+            s = self.entries[shoes]
+            ss, X = self.put_on_shoes(shoes, B)
+            sc.merge(ss, "shoes ", lambda p: ("Shoes", True, X[p["mesh"]]) if p["mesh"] in X else None, bones=False)
+            shoe = s["label"]
+            files.append("itm.afs #%d (%s)" % (s["index"], s["name"]))
+            if heels:
+                notes.append("heels: her tilted feet are shown, the flat ones are a hidden group")
+        sc.title = "%s - %s - %s" % (who, head, suit) + (" - " + shoe if shoe else "")
+        sc.export_name = re.sub(r"[^0-9A-Za-z]+", "_", "%s %s %s %s" % (who, head.replace("Head: ", ""), suit, shoe)).strip("_")
         sc.note = "; ".join(notes)
         sc.info.update(meshes=sum(g is not None for g in sc.meshes), textures=len(sc.textures), archive=" + ".join(files))
         return sc
@@ -437,4 +528,7 @@ class DOAX2(Game):
             sc.note = "no node hierarchy - parts shown at their stored origin"
         elif e["archive"] in ("werone", "wertwo"):
             self.group_fits(sc, t, wearer or e["char"])
+        elif sid in self.bodies.values():
+            show_feet(sc, t, False, "All")
+            sc.note = "the tilted feet for heels are a hidden group in the parts panel"
         return sc

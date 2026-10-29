@@ -176,7 +176,8 @@ canvas{position:absolute;inset:0;width:100%;height:100%;display:block;outline:no
         <label>Character<select id="dgirl" aria-label="Character"></select></label>
         <label>Head<select id="dhead" aria-label="Head" disabled></select></label>
         <label>Swimsuit<select id="dsuit" aria-label="Swimsuit" disabled></select></label>
-        <p class="dim" id="dhint">Her body, the head and the swimsuit load as one model; the export buttons save it. ◀ ▶ step through the swimsuits.</p>
+        <label>Shoes<select id="dshoes" aria-label="Shoes" disabled></select></label>
+        <p class="dim" id="dhint">Her body, the head, the swimsuit and the shoes load as one model (heels put her on her tilted feet); the export buttons save it. ◀ ▶ step through the swimsuits.</p>
       </div>
     </div>
     <div id="parts" class="panel"><h2><span class="tabs"><a id="pmin" title="Minimise the parts list">▾</a><a id="tabparts" class="on">Parts</a><span id="tabsep"> · </span><a id="tabbones" title="The skeleton's bones (B shows the skeleton)">Bones</a></span><span id="partlinks"><a id="pall">all</a> · <a id="pnone">none</a></span></h2><div id="plist"></div><div id="blist"></div></div>
@@ -734,14 +735,15 @@ function initPartsMin(dress){
   setPartsMin(v===null?dress:v==="1", true);
 }
 
-/* ---------------- character picker (DOAX2): her body, a head and a swimsuit as one model ---------------- */
+/* ---------------- character picker (DOAX2): her body, a head, a swimsuit and shoes as one model ---------------- */
 const OUTFIT="outfit:", D={data:null};
 const girlOf=code=>D.data&&D.data.girls.find(g=>g.code===code);
 const headName=l=>l.replace(/^Head: /,"").replace(/^Head/,"Standard");
+const opt=(v,l)=>'<option value="'+esc(v)+'">'+esc(l)+'</option>', grp=(l,s)=>s?'<optgroup label="'+esc(l)+'">'+s+'</optgroup>':"";
 async function loadDress(key, on){
   D.data=null; $("dress").style.display=on?"":"none";
   if(!on) return;
-  for(const id of ["dgirl","dhead","dsuit"]){ $(id).innerHTML=""; $(id).disabled=true; }
+  for(const id of ["dgirl","dhead","dsuit","dshoes"]){ $(id).innerHTML=""; $(id).disabled=true; }
   $("dstatus").textContent="reading the swimsuits…";
   let j;
   try{ const r=await fetch("/api/dress/"+key); if(!r.ok) throw new Error(await r.text()); j=await r.json(); }
@@ -750,13 +752,15 @@ async function loadDress(key, on){
   D.data=j; $("dstatus").textContent="";
   $("dgirl").innerHTML='<option value="">Pick a character…</option>'+j.girls.map(g=>'<option value="'+esc(g.code)+'">'+esc(g.name)+'</option>').join("");
   $("dgirl").disabled=false;
+  // every pair fits every girl (each shoe goes on her foot bone); heels switch her to the tilted feet
+  const shoes=j.shoes||[], list=h=>shoes.filter(s=>s.heels===h).map(s=>opt(s.id,s.label)).join("");
+  $("dshoes").innerHTML=opt("","No shoes")+grp("Heels",list(true))+grp("Flat",list(false));
   if(S.cur) syncDress(S.cur);
 }
 function fillDress(code){
   const g=girlOf(code), H=$("dhead"), W=$("dsuit");
-  H.innerHTML=W.innerHTML=""; H.disabled=W.disabled=!g;
+  H.innerHTML=W.innerHTML=""; H.disabled=W.disabled=$("dshoes").disabled=!g;
   if(!g) return;
-  const opt=(v,l)=>'<option value="'+esc(v)+'">'+esc(l)+'</option>', grp=(l,s)=>s?'<optgroup label="'+esc(l)+'">'+s+'</optgroup>':"";
   const others=D.data.girls.filter(o=>o!==g);
   // her own heads and swimsuits first; any other girl's head is a head swap, any swimsuit with a fit for her body type fits
   H.innerHTML=grp(g.name+"'s heads",g.heads.map(h=>opt(h.id,headName(h.label))).join(""))+
@@ -766,26 +770,28 @@ function fillDress(code){
   const own=g.suits.find(s=>s.owner===g.code)||g.suits[0];
   H.value=g.heads.length?g.heads[0].id:H.value; W.value=own?own.id:"";
 }
-function outfitList(){   // ◀ ▶ step through the swimsuits with the same girl and head
-  const g=girlOf($("dgirl").value); if(!g) return [];
-  const pre=OUTFIT+g.code+"+"+$("dhead").value+"+";
-  return [...$("dsuit").options].map(o=>pre+o.value);
+// outfit:<girl>+<head>+<swimsuit>, plus +<shoes> when she wears any
+const outfitId=suit=>OUTFIT+$("dgirl").value+"+"+$("dhead").value+"+"+suit+($("dshoes").value?"+"+$("dshoes").value:"");
+function outfitList(){   // ◀ ▶ step through the swimsuits with the same girl, head and shoes
+  if(!girlOf($("dgirl").value)) return [];
+  return [...$("dsuit").options].map(o=>outfitId(o.value));
 }
 function wearOutfit(){
   if(!girlOf($("dgirl").value)) return;
   S.curList=outfitList();
-  loadModel(OUTFIT+$("dgirl").value+"+"+$("dhead").value+"+"+$("dsuit").value);
+  loadModel(outfitId($("dsuit").value));
 }
 function syncDress(id){
   if(!D.data||!id||!id.startsWith(OUTFIT)) return;
-  const [code,head,suit]=id.slice(OUTFIT.length).split("+");
+  const [code,head,suit,shoes=""]=id.slice(OUTFIT.length).split("+");
   if($("dgirl").value!==code){ $("dgirl").value=code; fillDress(code); }
-  $("dhead").value=head; $("dsuit").value=suit;
+  $("dhead").value=head; $("dsuit").value=suit; $("dshoes").value=shoes;
   if(!S.curList.includes(id)) S.curList=outfitList();
 }
 $("dgirl").onchange=e=>{ fillDress(e.target.value); wearOutfit(); e.target.blur(); };
 $("dhead").onchange=e=>{ wearOutfit(); e.target.blur(); };
 $("dsuit").onchange=e=>{ wearOutfit(); e.target.blur(); };
+$("dshoes").onchange=e=>{ wearOutfit(); e.target.blur(); };
 $("skel").onchange=e=>{ setSkel(+e.target.value); e.target.blur(); };
 buildBonesUI();
 $("prev").onclick=()=>step(-1); $("next").onclick=()=>step(1);

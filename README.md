@@ -46,9 +46,10 @@ options: --port 8765  --no-browser  --forget KEY  --version
   visible. The FBX embeds its textures and carries the skeleton too (not skinned).
   Culling button / **Alt+C** cycles GreedXplorer's four modes in its order: none, CW (back faces), CCW (front faces),
   per material (default, remembered between visits). The parts panel's ▾ shrinks it to its header (remembered per game).
-- Character picker (DOAX2, right side above the parts panel): choose a girl, a head and a swimsuit and they load as one
-  model, ready for the export buttons; ←/→ step through the swimsuits. Heads: her hairstyles (dry and wet), or any other
-  girl's head as a head swap. Swimsuits: hers first, then every other girl's that has a fit for her body type. The parts
+- Character picker (DOAX2, right side above the parts panel): choose a girl, a head, a swimsuit and shoes and they load
+  as one model, ready for the export buttons; ←/→ step through the swimsuits. Heads: her hairstyles (dry and wet), or any
+  other girl's head as a head swap. Swimsuits: hers first, then every other girl's that has a fit for her body type.
+  Shoes: the ankle accessories and the bunny heels, which fit every girl; heels put her on her tilted feet. The parts
   panel starts minimised in DOAX2 to make room.
 - Skeleton view (dropdown or `B`): off, drawn on top of the model, or the skeleton alone. The **Bones** tab in the parts
   panel lists the hierarchy; hovering a bone or a joint names it, clicking centres the view on it. A bone that belongs to
@@ -64,7 +65,7 @@ options: --port 8765  --no-browser  --forget KEY  --version
 | DOA2U | 418/418 entries load. Costumes assemble with GreedXplorer layouts (258 exact); the 25 `A#` costumes are DOA3 models and use GreedXplorer's DOA3 layouts, matched by mesh and texture count |
 | DOA1U | 135/135 load. Only gen00/jan00/jan01 have layouts and there are no `.cat` files, so the rest show unassembled. Stages are texture-only |
 | DOAX | 2593/2593 load. Bodies (`v<code>NN`) and ~2000 swimsuits/accessories (`md<item><wearer>`) placed from each `.cat` bone map + the wearer's skeleton. 19 items use a newer `.cat` variant and show unassembled |
-| DOAX2 | 1016/1016 load. Bodies, heads, swimsuits, items, boats, stages; placed from the file's own node tree. Heads are listed by hairstyle, each with its wet version. Swimsuits are listed by their shop names and show the owner's fit; the fits for the other body types are toggles in the parts panel. The character picker dresses any girl in any head and fitting swimsuit |
+| DOAX2 | 1016/1016 load. Bodies, heads, swimsuits, items, boats, stages; placed from the file's own node tree. Heads are listed by hairstyle, each with its wet version. Swimsuits are listed by their shop names and show the owner's fit; the fits for the other body types are toggles in the parts panel. The character picker dresses any girl in any head, fitting swimsuit and shoes |
 | DOA4 | 854/854 load and every texture on the disc decodes (19,952). 23 characters plus a cutscene cast (117 costumes, 25 heads, 17 colour variants listed with their base), 24 stages, effects, menus and 635 online-lobby avatar parts; placed from the file's own node tree. Head-swap characters get their `AA` head, the other hairstyles are toggles in the parts panel |
 
 ## Versions
@@ -157,6 +158,15 @@ Verified unless marked otherwise.
   tree split off a fit (Tina's bottom in `vht_ch_a`) keeps its other nodes inside that fit's run. Pieces stored once (bead
   rows, tassel chains, helper quads, ornaments kept with the middle fit only) are shared props. Node list order is not
   object order in these files.
+- DOAX2 feet: every body has two pairs. The flat pair hangs under the shins (per side ankle, foot, toe joint and toes:
+  objects 3, 9, 13, 19 and 22, 28, 32, 38). The other is a one-piece foot tilted 18° toes-down with its own ankle piece
+  (4, 10 and 23, 29), stored as separate root objects at the ankles; the body `.cat` brackets exactly these four as a swap
+  set on the same foot bones. The tilted pair is for heels. No swimsuit has shoes: footwear is the 18 ankle accessories
+  (`acc_ank_`, the archive gives them no other name) and the bunny suit's heels (`zgra_bny_a1`-`a5`) in itm.afs. Each is
+  followed by a `.cat` listing (object, bone, 4x4 matrix) records that put each shoe on foot bone 3 or 9; worn that way
+  a pair fits every body type. Heels (accessories 4-9 and the bunny heels) sit 10-13 mm off the tilted feet and 17-26 mm
+  off the flat ones; flat shoes the other way round (12-17 mm off the flat feet, 21-33 mm off the tilted ones). Bodies show the flat feet, outfits the pair
+  their shoes need; the other pair is a hidden group in the parts panel.
 - DOA4 character files hold the model three times: full detail, a low-detail copy, and an untextured shadow copy built from
   the low one (its objects have the low copy's exact bounds). The viewer pairs each shadow object with the same-bounds
   textured object closest in vertex count; the hierarchy root those partners belong to is the low-detail set. Both start
@@ -204,8 +214,10 @@ Verified unless marked otherwise.
   to the meshes (blend weights are not decoded); OBJ and GLB carry no bones.
 - The newer `.cat` variant (dword0 = 1) is not decoded. One `A#` material references texture 190 of 41 (unknown shared table).
 - DOAX: no "wear swimsuit on body" combination yet (each file is shown on its own); stages show at their stored origins.
-- DOAX2: LOD/shadow meshes are not separated (the `.cat` "long way" isn't decoded); no skinning or morphs; small textures that
-  live in a packed mip tail may decode wrong.
+- DOAX2: LOD/shadow meshes are not separated (the `.cat` "long way" isn't decoded); no skinning. Not used yet: the breast
+  morph targets (six position buffers after the base one on the chest pieces and swimsuit tops), the hand poses in
+  `chr.afs` `hand_*.bin` (replacement finger vertices), the face's switchable eye and mouth pieces (all are drawn). Small
+  textures that live in a packed mip tail may decode wrong.
 - DOA4: `.cat` material tints are not applied, so colour variants look like their base. Which head goes with which costume in-game isn't known; `AA` is always the default.
   Stages show the first colour map of each material (no lightmaps), and some frame wide because of distant scenery
   cards. No skinning or animation.
