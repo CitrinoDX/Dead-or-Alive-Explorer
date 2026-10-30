@@ -245,7 +245,8 @@ def physics(d):
     po, end = h[2], h[3]
     table, q = [], po
     while q + 8 <= end and u(q) != 0xFF:
-        table.append((u(q), u(q + 4)))
+        if u(q + 4) < end - po:          # DOA2U's Kasumi A# lists alternatives with no record (offset 0xFFFFFFFF)
+            table.append((u(q), u(q + 4)))
         q += 8
     starts = sorted({off for _, off in table}) + [end - po]
     out = []
