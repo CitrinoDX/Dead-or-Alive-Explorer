@@ -28,7 +28,8 @@ DOA2U, DOA1U, DOA3 and DOAX store costumes as loose limbs. DOA3 assembles from i
 the skeletons in `default.xbe`); for the others the viewer reads third-party data you may already have; it is not included
 in this project. Add any of these folders in Setup:
 - your **GreedXplorer** folder (its `doau2data`, `doau1data`, `doa3data`, `doaxdata` layout folders): DOA2U, DOA1U, the
-  DOA3-era DOA2U costumes, and DOA3's hair and cloth pieces the `.cat` doesn't place;
+  DOA3-era DOA2U costumes; for DOA3 its hand-placed hair, cloth and prop pieces take the place of the physics' rest
+  pose (they are tilted clear of the body);
 - the **Team Ninja Blender importer** (2013) folder or its `skeletons` subfolder: DOAX bodies and swimsuits, and the
   skeleton view for DOA2U;
 - the **3ds Max layout scripts** made for the DOAU Exporter's `.3ds` files (`aya00.3ds.ms`, ... in per-character folders,
@@ -70,7 +71,7 @@ options: --port 8765  --no-browser  --forget KEY  --version
 |---|---|
 | DOA2U | 418/418 entries load. Costumes assemble with GreedXplorer layouts (258 exact); the 25 `A#` costumes are DOA3 models and use GreedXplorer's DOA3 layouts, matched by mesh and texture count. With the 3ds Max layout scripts, 16 costumes get pieces GreedXplorer leaves out or misplaces |
 | DOA1U | 135/135 load. Only gen00/jan00/jan01 have layouts and there are no `.cat` files, so the rest show unassembled. Stages are texture-only |
-| DOA3 | 174/174 load: 69 costumes of 19 characters (Leon's three unused costumes and Omega included), 27 stages, effects and 77 menu sprite bundles. All 69 costumes assemble from their `.cat` and the skeleton table in `default.xbe`, no extra data needed: limbs, joints, eyes, low poly and shadow meshes (2112 of the 2148 meshes GreedXplorer also places agree within 1 cm; the rest within 3.5 cm). With GreedXplorer, its hand-placed hair and cloth pieces fill in what the `.cat` doesn't place (150 meshes). Stages are in world space; sky domes and distant backdrops start hidden so the view frames the arena |
+| DOA3 | 174/174 load: 69 costumes of 19 characters (Leon's three unused costumes and Omega included), 27 stages, effects and 77 menu sprite bundles. All 69 costumes assemble from their `.cat` and the skeleton table in `default.xbe`, no extra data needed: limbs, joints, eyes, low poly and shadow meshes (2112 of the 2148 meshes GreedXplorer also places agree within 1 cm; the rest within 3.5 cm). Hair, cloth and props come from the `.cat`'s physics at their rest pose (194 meshes in 40 costumes: Gen Fu's hat, Kasumi's sword cords, Brad Wong's buttons, Ein's and Leon's sunglasses, ...). With GreedXplorer, its 150 hand-placed pieces come first and the physics adds 87. Stages are in world space; sky domes and distant backdrops start hidden so the view frames the arena |
 | DOAX | 2593/2593 load. Bodies (`v<code>NN`) and ~2000 swimsuits/accessories (`md<item><wearer>`) placed from each `.cat` bone map + the wearer's skeleton. 19 items use a newer `.cat` variant and show unassembled |
 | DOAX2 | 1016/1016 load. Bodies, heads, swimsuits, items, boats, stages; placed from the file's own node tree. Heads are listed by hairstyle, each with its wet version. Swimsuits are listed by their shop names and show the owner's fit; the fits for the other body types are toggles in the parts panel. The character picker dresses any girl in any head, fitting swimsuit and shoes |
 | DOA4 | 854/854 load and every texture on the disc decodes (19,952). 23 characters plus a cutscene cast (117 costumes, 25 heads, 17 colour variants listed with their base), 24 stages, effects, menus and 635 online-lobby avatar parts; placed from the file's own node tree. Head-swap characters get their `AA` head, the other hairstyles are toggles in the parts panel |
@@ -126,8 +127,22 @@ Verified unless marked otherwise.
   key being the previous * 5 // 7. A (+0x14): `0x100, 1`, the offset of the mesh lists, then (type, offset) pairs and
   flags. The lists are OBJ numbers after a marker byte: 0xFE high poly for bones 0-14 in order, 0xFD the eyes, 0xFB a
   second forearm segment (bones 19/20, placed like the forearms), 0xF9 low poly, 0xF8 shadow, 0xF7/0xF6 a few extras,
-  0xFF ends them. B is the hair and cloth physics (spring chains rooted on bones: radius, mass, stiffness, damping, root
-  and segment), C the `LNK` vertex links; neither is used.
+  0xFF ends them. B is the physics (below), C the `LNK` vertex links (not used).
+  The physics (B) is a table of (type, offset) records. Type 1 is a chain of n nodes on a bone: length, mass,
+  stiffness, damping, a root and a step in the bone's frame, then groups whose mesh entry is 0xFFFE + OBJ (vertices the
+  chain bends inside a mesh placed elsewhere: hair in the head mesh, sleeve ties), 0xFFFF + OBJ (a mesh it carries,
+  stored hanging down -Y from the root, with each vertex's rest offset from its node) or n OBJ numbers, one rigid
+  mesh per node. A zero step spaces the nodes `length` apart straight down (Gen Fu's hat beads and strings land within
+  1-2 cm of GreedXplorer). Bone 255 hangs a chain from the body before it (type 0: bone, flag 1 = chains hang from it,
+  offset, OBJ; Gen Fu's hat) or from the previous chain's root (Omega's shoulder pieces). Type 3 (OBJ, 0, flag, bone)
+  fixes a mesh in a bone's frame (the physics hair copies, Kasumi's sword hilt). Type 0xFE repeats the record before it
+  as an alternative (Kasumi's drawn sword in her right hand, kept in a hidden Props group). Types 2, 5, 0xFA, 0xFB are
+  cloth sheets that bend placed meshes, and collision shapes. The rest pose has no simulation: chain meshes hang
+  straight down, unturned. Bodies sit in their bone's frame, except that a body no chain hangs from, stored above and
+  behind its pivot, hangs turned over: that puts Ein's, Leon's and Bass's sunglasses on their eyes, as GreedXplorer has
+  Ein's. Of the 105 pieces both place, 56 sit within 2 cm of GreedXplorer and 84 within 5 cm. The largest gaps are
+  GreedXplorer's guesses: Ryu's headband tails 17 cm off the forehead roots, on swapped sides, and two identical hat
+  beads on swapped brim sides.
   D holds the joint meshes (neck, waist, shoulders, elbows, wrists, hips, knees, ankles), each stored in the frame of its
   bone a. A record starts with bone b's rotation into bone a's frame (rows interleaved with an identity's), two pivots,
   then rings of vertices (position, normal). The index blocks after it weight each ring in 16ths and list the joint-mesh
@@ -281,8 +296,10 @@ Verified unless marked otherwise.
   shoulder 5 cm further in than `gen.doau`).
 - Skeleton view: TPR node trees have no bone names (bones are named after their objects). The FBX skeleton is not bound
   to the meshes (blend weights are not decoded); OBJ and GLB carry no bones.
-- DOA3: the hair and cloth pieces moved by the physics (section B) are not placed from the `.cat`. Without GreedXplorer
-  they stay hidden under Unassigned (308 meshes with it, 458 without, the coarser limb set included). DOA2U's `A#`
+- DOA3: the physics' rest pose is not simulated, so hanging pieces drop straight down and can clip into the body
+  (Helena's ponytail into her coat) and a few face the wrong way (Lei Fang's heel bows, which GreedXplorer turns 90°).
+  264 meshes nothing places stay hidden under Unassigned (221 with GreedXplorer): mostly the coarser limb set, plus a
+  few pieces no `.cat` record names (Lei Fang's third ankle strips, Leon 03's forearm segments). DOA2U's `A#`
   costumes could use `cat3.py` too but don't yet: DOA2U has no skeleton table, so they would need the importer's
   skeletons or the joint offsets alone. The 132-byte DOAX `.cat` variant is not decoded.
 - DOA3: stage vertex colours (the baked lighting of the pre-lit geometry) are not used, and multi-stage materials draw

@@ -6,7 +6,8 @@ A (+0x14): 0x100, 1, offset of the mesh lists (relative to A), then (type, offse
   numbers after a marker byte: 0xFE high poly for bones 0-14, 0xFD the eyes (bones 17, 21), 0xFB a second forearm
   segment (bones 19, 20: same place and turn as the forearms), 0xF9 low poly, 0xF8 shadow, 0xF7/0xF6 a few extras;
   0xFF ends them. Materials follow (not used).
-B: hair and cloth physics (spring chains rooted on bones). C: 'LNK' vertex links. Neither is used.
+B: hair and cloth physics, a table of (type, offset) pairs ending with type 0xFF; see physics(). C: 'LNK' vertex links
+  (not used).
 D: the joint meshes (neck, elbows, knees...): an offset table, then per joint the end and start of its float block
   (relative to D), the OBJ, bone a, bone b, flags. The float block starts with bone b's rotation into bone a's frame
   (rows interleaved with an identity's), two pivots (repeated), then ring vertices (position, normal); index blocks
@@ -215,4 +216,125 @@ def place(scene, c, P, nobjs):
     for j in c.joints:
         add(j["obj"], j["a"], JOINT_NAMES.get(j["a"], PART_NAMES.get(j["a"], "bone %d" % j["a"]) + " joint"),
             "Character", True)
+    return placed
+
+
+# ---- section B: the physics
+# Records (offsets relative to B):
+#   type 1: a chain of n nodes: n, bone, 0, 1; length, mass, stiffness, damping; root and step (bone frame); 4 floats;
+#     then groups of 6 dwords (0, collision list, mesh entry, rest positions, vertex list, ?). The mesh entry is
+#     0xFFFE + OBJ (vertices the chain bends, in a mesh placed elsewhere: hair inside the head mesh, sleeve ties),
+#     0xFFFF + OBJ (a mesh the chain carries, stored hanging down -Y from the root) or n OBJ numbers, one rigid mesh per
+#     node (0xFFFD: none). Bone 255 hangs the chain from the body or chain before it. A zero step spaces the nodes
+#     'length' apart straight down. Groups after the first start with a nonzero collision list.
+#   type 0: a rigid body: id, bone, flag (1: chains hang from it), ?; 6 floats, offset from the bone (x, y, z),
+#     2 floats, then the OBJ (u16; OBJ 0 is a mesh like any other).
+#   type 3: (OBJ, 0, flag, bone): a mesh fixed to a bone, stored in its frame (flag 2: one the chains bend).
+#   type 0xFE: alternatives of the record before it (Kasumi's drawn sword in her right hand); chains only repeat
+#     the previous one's mesh from another root.
+#   types 2, 5, 0xFA, 0xFB...: cloth sheets that bend placed meshes, collision shapes. Not needed for placement.
+CARRIED, NONE, BENT = 0xFFFF, 0xFFFD, 0xFFFE
+
+
+def physics(d):
+    """section B -> list of dict(kind=chain|body|attach, ...), in file order"""
+    h = plain_header(d)
+    u = lambda o: struct.unpack_from("<I", d, o)[0]
+    u16 = lambda o: struct.unpack_from("<H", d, o)[0]
+    f3 = lambda o: np.array(struct.unpack_from("<3f", d, o), float)
+    po, end = h[2], h[3]
+    table, q = [], po
+    while q + 8 <= end and u(q) != 0xFF:
+        table.append((u(q), u(q + 4)))
+        q += 8
+    starts = sorted({off for _, off in table}) + [end - po]
+    out = []
+    for kind, off in table:
+        b = po + off
+        size = min(s for s in starts if s > off) - off
+        if b + 52 > end or size < 4:
+            continue
+        alt = kind == 0xFE
+        if kind in (1, 0xFE) and d[b + 3] == 1 and size >= 92:
+            c = dict(kind="chain", alt=alt, n=d[b], bone=d[b + 1], length=struct.unpack_from("<f", d, b + 4)[0],
+                     root=f3(b + 20), step=f3(b + 36), carried=[], nodes=[], bent=[])
+            g = b + 68
+            while g + 24 <= b + size and u(g) == 0 and 0 < u(g + 8) < end - po and (g == b + 68 or u(g + 4)):
+                p = po + u(g + 8)
+                if u16(p) == CARRIED:
+                    c["carried"].append(u16(p + 2))
+                elif u16(p) == BENT:
+                    c["bent"].append(u16(p + 2))
+                elif u16(p) != NONE and p + 2 * c["n"] <= end:
+                    c["nodes"] = [u16(p + 2 * k) for k in range(c["n"])]
+                g += 24
+            out.append(c)
+        elif kind == 0 and size >= 52:
+            out.append(dict(kind="body", alt=False, bone=d[b + 1], parent=d[b + 2] == 1, offset=f3(b + 28),
+                            obj=u16(b + 50)))
+        elif kind in (3, 0xFE) and d[b + 1] == 0 and d[b + 2] in (1, 2):
+            out.append(dict(kind="attach", alt=alt, obj=d[b], bone=d[b + 3]))
+    return out
+
+
+def place_physics(scene, d, P, W, skip):
+    """Meshes the physics hangs, fixes or carries, at their rest pose: chains' meshes hang straight down from their
+    roots and nodes, fixed meshes and bodies sit in their bone's frame. A body no chain hangs from, stored above and
+    behind its pivot, hangs turned over (the sunglasses of Bass, Leon and Ein, as GreedXplorer has Ein's).
+    Alternatives go in a hidden Props group. skip: meshes already placed. Returns the meshes it placed."""
+    placed = set()
+    nmesh = len(scene.meshes)
+
+    def add(obj, m, group="Hair & cloth", visible=True):
+        if obj in skip or obj in placed or obj >= nmesh or scene.meshes[obj] is None:
+            return
+        scene.add_part(scene.meshes[obj].get("name") or "OBJ_%d" % obj, obj, m, group, visible)
+        placed.add(obj)
+    rec = physics(d)
+    body = node = None     # where a bone-255 chain hangs: the last parent body, else the last chain's root
+    for r in rec:
+        if r["kind"] == "body":
+            if r["bone"] not in P:
+                continue
+            pos = P[r["bone"]] + W[r["bone"]] @ r["offset"]
+            if r["parent"]:
+                body = pos
+            m = trs(pos)
+            m[:3, :3] = W[r["bone"]]
+            g = scene.meshes[r["obj"]] if r["obj"] < nmesh else None
+            if not r["parent"] and g is not None:
+                c = g["pos"].mean(axis=0)
+                if c[1] > 0 and c[2] < -0.01:
+                    m[:3, :3] = m[:3, :3] @ np.diag([1.0, -1.0, -1.0])
+            add(r["obj"], m)
+        elif r["kind"] == "attach":
+            if r["bone"] in P:
+                m = trs(P[r["bone"]])
+                m[:3, :3] = W[r["bone"]]
+                add(r["obj"], m, *(("Props", False) if r["alt"] else ()))
+        elif not r["alt"]:
+            if r["bone"] == 255:
+                base, R = (body if body is not None else node), np.eye(3)
+            elif r["bone"] in P:
+                base, R = P[r["bone"]], W[r["bone"]]
+                node = base + R @ r["root"]
+            else:
+                continue
+            if base is None:
+                continue
+            start = base + R @ r["root"]
+            if np.abs(r["step"]).max() > 1e-6:
+                nodes = [start + R @ (k * r["step"]) for k in range(max(r["n"], 1))]
+            else:
+                nodes = [start + np.array([0.0, -r["length"] * k, 0.0]) for k in range(max(r["n"], 1))]
+            for obj in r["carried"]:
+                add(obj, trs(start))
+            for k, obj in enumerate(r["nodes"]):
+                if obj < NONE and k < len(nodes):
+                    add(obj, trs(nodes[k]))
+            if r["bone"] in P:
+                for obj in r["bent"]:
+                    m = trs(P[r["bone"]])
+                    m[:3, :3] = W[r["bone"]]
+                    add(obj, m)
     return placed

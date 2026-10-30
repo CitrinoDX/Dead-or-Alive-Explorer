@@ -158,10 +158,12 @@ class DOA3(Game):
 
     def assemble(self, sc, x, e):
         """Limbs, joints, eyes, low poly and shadow meshes from the .cat; copies of a placed mesh (the physics hair)
-        hidden on it; the remaining hair and cloth pieces from GreedXplorer's layout, else hidden under Unassigned."""
-        cat = None
+        hidden on it; GreedXplorer's hand-placed pieces when the user has its layouts (tuned to clear the body in the
+        T-pose); the rest of the hair, cloth and props at the physics' rest pose; anything left hidden (Unassigned)."""
+        cat = raw = None
         try:
-            cat = cat3.parse(self.afs.read(e["cat"])) if e["cat"] is not None else None
+            raw = self.afs.read(e["cat"]) if e["cat"] is not None else None
+            cat = cat3.parse(raw) if raw is not None else None
         except ValueError:
             pass
         bones, src = self.skeleton(e["char"])
@@ -193,6 +195,11 @@ class DOA3(Game):
                     notes.append("%d more from GreedXplorer's %s" % (len({p["mesh"] for p in more}),
                                                                       os.path.basename(path)))
             placed |= {p["mesh"] for p in more}
+        if cat and placed:
+            more = cat3.place_physics(sc, raw, P, cat3.bone_rotations(cat), placed)
+            placed |= more
+            if more:
+                notes.append("%d hair, cloth and prop meshes from the physics" % len(more))
         if not placed:
             sc.default_parts()
             sc.note = "no .cat or layout - parts shown at their stored origin"
@@ -201,8 +208,7 @@ class DOA3(Game):
         for i in left:
             sc.add_part(sc.meshes[i].get("name") or "OBJ_%d" % i, i, None, "Unassigned", visible=False)
         if left:
-            notes.append("%d meshes the .cat doesn't place (physics hair and cloth, a coarser set of limbs) hidden "
-                         "under Unassigned" % len(left))
+            notes.append("%d meshes nothing places (mostly a coarser set of limbs) hidden under Unassigned" % len(left))
         if bones is not None:
             cat_skel.add_skeleton(sc, bones, src)
         sc.note = "; ".join(notes)
