@@ -79,6 +79,12 @@ options: --port 8765  --no-browser  --forget KEY  --version
 ## Versions
 Numbered MAJOR.MINOR.PATCH; 0.x while it is a work in progress. The version shows in the Setup panel, at startup and
 with `--version`.
+- **0.4.0**: Dead or Alive 3 (Xbox): all 69 costumes assemble from their own `.cat` and the skeletons in `default.xbe`, no
+  extra data needed, with hair, cloth and props from the `.cat` physics at their rest pose. DOAX2 character picker: any
+  girl in any head, swimsuit and shoes as one model, with only the feet the shoes need. FBX export with embedded textures
+  and the skeleton. DOA2U reads the optional 3ds Max layout scripts for pieces GreedXplorer leaves out or misplaces
+  (Tengu's wings, Ryu's ponytail, ...). The parts panel can be minimised. Fixes: texture ids and blending of the
+  DOA3-era compact models.
 - **0.3.0**: DOAX2 read straight from the disc image. DOAX2 swimsuits are named after their shop names and fitted to
   each body type (the owner's fit shows; the other fits are toggles in the parts panel); heads are named by hairstyle,
   each with its wet version. Skeleton view, sphere-mapped reflection textures, game picker dropdown. Fixes: every DOA2U /
